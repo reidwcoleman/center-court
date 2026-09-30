@@ -82,6 +82,9 @@ export class Game {
   private highlight: { kind: 'rally' | 'ace' | 'winner'; hitter: 0 | 1 } | null = null;
   private close: { x: number; z: number; inside: boolean; mm: number; t: number; hitT: number } | null = null;
   private lastHitT = 0;
+  private lastAttack = false;
+  /** the rally is over (a fault, an out ball, a point pending): nobody plays the ball */
+  private dead = false;
   private replayDone = false;
   /** event log for tools (tools/play.mjs) */
   readonly log: string[] = [];
@@ -185,6 +188,7 @@ export class Game {
     this.dribbles = 0;
     this.dribbleT = 0;
     this.replay?.clear();
+    this.dead = false;
     this.highlight = null;
     this.close = null;
     this.replayDone = false;
@@ -391,6 +395,7 @@ export class Game {
     this.ball.bounces = 0;
     this.isServe = true;
     this.lastHitT = this.clock;
+    this.lastAttack = false;
     this.replay.mark('hit', this.clock, contact.x, contact.z);
     this.lastHitter = this.serverIdx;
     this.bouncesAfterHit = 0;
@@ -419,7 +424,11 @@ export class Game {
     const hitter = this.players[this.lastHitter!];
     const recv = this.players[1 - this.lastHitter!];
     hitter.plan = null;
-    hitter.moveTarget = hitter.recoverySpot(this.pred.pts[this.pred.pts.length - 1].x, hitter.pos.z * hitter.side < 5);
+    const landX = this.pred.pts[this.pred.pts.length - 1].x;
+    // the computer follows an attacking shot from inside the baseline to the net
+    const approach = !hitter.human && this.lastAttack && hitter.pos.z * hitter.side < HL - 2.2;
+    if (approach) hitter.moveTarget = new THREE.Vector3(THREE.MathUtils.clamp(landX * 0.45, -2.2, 2.2), 0, hitter.side * 2.9);
+    else hitter.moveTarget = hitter.recoverySpot(landX, hitter.pos.z * hitter.side < 5);
     recv.plan = null;
     recv.rig.splitStep();
     this.replan(recv, true);
@@ -460,6 +469,7 @@ export class Game {
   }
 
   private rally(dt: number) {
+    if (this.pendingPoint && this.pendingPoint.at < 1e8 && !this.dead) this.dead = this.pendingPoint.reason !== 'winner' && this.pendingPoint.reason !== 'ace' && this.pendingPoint.reason !== 'service-winner' ? true : this.dead;
     const hitterIdx = this.lastHitter;
     for (const p of this.players) {
       const receiving = hitterIdx !== null && p.index !== hitterIdx;
@@ -526,6 +536,10 @@ export class Game {
   }
 
   private tryStrike(p: Player) {
+    if (this.dead) {
+      p.plan = null;
+      return;
+    }
     const plan = p.plan!;
     const tTo = plan.tContact - this.clock;
     const lead = plan.volley ? 0.42 : plan.smash ? 0.7 : 0.72;
@@ -594,10 +608,22 @@ export class Game {
     } else depth = 8.3 + aimD * 2.0;
     if (plan.volley) depth = Math.min(depth, 8.5);
     depth = Math.min(depth, HL - 0.55);
+    const skill0 = p.skill;
+    void skill0;
     const skill = p.skill;
+    // the computer's errors: every level misses a share of its shots — long, wide, or into the net
+    let forced: 'long' | 'wide' | 'net' | null = null;
+    if (!p.human) {
+      const L = AI_LEVELS[this.cfg.level];
+      const pressure = Math.max(0, plan.late + 0.2) * 0.4 + Math.min(0.08, incoming / 500) + power * 0.03;
+      if (Math.random() < L.errors + pressure) forced = (['long', 'wide', 'net'] as const)[Math.floor(Math.random() * 3)];
+    }
+    if (forced === 'long') depth = HL + 0.4 + Math.random() * 1.6;
+    if (forced === 'wide') tx = Math.sign(tx || (Math.random() - 0.5)) * (HSW + 0.25 + Math.random() * 0.9);
+    if (forced === 'net') depth = 0.6 + Math.random() * 0.8;
     const stretched = plan.late > -0.12 ? 0.35 : 0;
     const sigma = (0.34 + (1 - quality) * 1.9 + power * power * 0.75 + (incoming / 40) * 0.5 + stretched) * (1.4 - skill.accuracy);
-    const target = { x: THREE.MathUtils.clamp(tx * s, -4.6, 4.6) + gauss() * sigma, z: -s * depth + gauss() * sigma * 1.2 };
+    const target = { x: THREE.MathUtils.clamp(tx * s, -5.4, 5.4) + gauss() * sigma, z: -s * depth + gauss() * sigma * 1.2 };
     const pw = power * skill.power * (0.55 + 0.45 * quality);
     let spec: ShotSpec;
     const isVolley = plan.volley;
@@ -611,7 +637,8 @@ export class Game {
     if (isVolley && type !== 'drop') spec = { speed: 18 + 12 * pw, rpm: -1200, clear: 0.12 };
     if (plan.smash) spec = { speed: 34 + 16 * pw, rpm: 300, clear: 0.2 };
     // a poor contact can't be steered: commit (the pace and angle stay, errors happen)
-    spec.commit = quality < 0.45 && Math.random() < 0.6;
+    spec.commit = (quality < 0.45 && Math.random() < 0.6) || forced !== null;
+    if (forced === 'net') spec.clear = -0.25;
     const sol = solveShot({ x: contact.x, y: contact.y, z: contact.z }, target, spec, this.world.venue.surface);
     this.ball.set({ x: contact.x, y: contact.y, z: contact.z }, sol.v, sol.w);
     this.ball.bounces = 0;
@@ -622,6 +649,7 @@ export class Game {
     this.bounceSide = 0;
     this.rallyShots++;
     this.lastHitT = this.clock;
+    this.lastAttack = (type === 'flat' || type === 'topspin') && power > 0.7 && !isVolley && Math.random() < 0.7;
     this.replay.mark('hit', this.clock, contact.x, contact.z);
     this.say(`hit ${this.names[p.index]} ${type} q=${quality.toFixed(2)} pw=${power.toFixed(2)} ${(sol.speed * 3.6).toFixed(0)}kmh from(${contact.x.toFixed(1)},${contact.y.toFixed(2)},${contact.z.toFixed(1)}) to(${target.x.toFixed(1)},${target.z.toFixed(1)}) ok=${sol.ok}${plan.volley ? ' volley' : ''}`);
     const kind = type === 'slice' || type === 'drop' ? 'slice' : isVolley ? 'volley' : 'drive';
@@ -736,6 +764,7 @@ export class Game {
   private faultAt = 0;
   private letAt = 0;
   private pendingFault(at: number) {
+    this.dead = true;
     this.faultAt = at;
     this.pendingPoint = { winner: this.serverIdx, reason: 'double', at: 1e9 }; // placeholder blocks other calls
     this.state = 'serveFlight';
@@ -758,6 +787,7 @@ export class Game {
     this.faultCheck = check;
   }
   private pendingLet() {
+    this.dead = true;
     this.letAt = this.clock + 1.0;
     this.pendingPoint = { winner: this.serverIdx, reason: 'double', at: 1e9 };
     this.faultCheck = () => {

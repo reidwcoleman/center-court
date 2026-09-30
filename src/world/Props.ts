@@ -136,8 +136,8 @@ export class Props {
 
     // ---- TV camera platforms in the end-stand bays (seats removed by Stadium)
     for (const sz of [-1, 1]) {
-      const plat = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.2, 9.5), dark);
-      plat.position.set(0, 5.8, sz * 28.6);
+      const plat = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.2, 5.5), dark);
+      plat.position.set(0, 5.7, sz * 27.4);
       plat.receiveShadow = true;
       this.group.add(plat);
       const cam = tvCamera(dark, steel);

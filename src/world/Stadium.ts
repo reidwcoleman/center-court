@@ -309,7 +309,7 @@ export class Stadium {
             const i0 = Math.floor(idx) % ring.count, i1 = (i0 + 1) % ring.count, t = idx - Math.floor(idx);
             const y = yOf(i0, r) * (1 - t) + yOf(i1, r) * t;
             // TV camera bays behind each baseline
-            if (tier === 0 && Math.abs(p.x) < 3.1 && Math.abs(p.z) > FLOOR_HZ + 0.5 && r <= 15) continue;
+            if (tier === 0 && Math.abs(p.x) < 3.1 && Math.abs(p.z) > FLOOR_HZ + 0.5 && r <= 10) continue;
             spots.push({ x: p.x, y, z: p.z, nx: nr.x, nz: nr.z, tier, row: r, cover: tier === 1 ? this.coverAt(d) : 0 });
           }
         }

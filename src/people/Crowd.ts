@@ -14,12 +14,16 @@ import { rng } from '../render/noise.ts';
  */
 
 export const FRAMES = 8; // 0-1 seated idle, 2-5 clapping, 6-7 standing cheer
+/** baked yaw angles (mirrored for the other side) and elevations (from below, level, from above) */
 const VIEWS = [0, 35, 70];
-const CELL_W = 64, CELL_H = 128, ATLAS = 2048;
+const ELEVS = [-22, 0, 28];
+const CELL_W = 48, CELL_H = 96, ATLAS = 2048;
 const BOX_W = 1.05, BOX_H = 2.1;
+/** the impostor's pivot above the floor (the capture looks at it) */
+const PIVOT = 1.0;
 
-const MALE = ['Male_Adult_01', 'Male_Adult_02', 'Male_Adult_03', 'Male_Adult_05', 'Male_Adult_07', 'Male_Adult_08', 'Male_Adult_10', 'Male_Adult_12', 'Male_Adult_14'];
-const FEMALE = ['Female_Adult_01', 'Female_Adult_02', 'Female_Adult_03', 'Female_Adult_04', 'Female_Adult_06', 'Female_Adult_08', 'Female_Adult_11'];
+const MALE = ['Male_Adult_01', 'Male_Adult_02', 'Male_Adult_03', 'Male_Adult_05', 'Male_Adult_08', 'Male_Adult_10', 'Male_Adult_14'];
+const FEMALE = ['Female_Adult_01', 'Female_Adult_02', 'Female_Adult_04', 'Female_Adult_06', 'Female_Adult_11'];
 
 const LOWER = /Pelvis|Thigh|Calf|Foot|Toe/;
 
@@ -59,7 +63,7 @@ export class Crowd {
     this.color.texture.generateMipmaps = false;
     this.normal.texture.generateMipmaps = false;
     const scene = new THREE.Scene();
-    const cam = new THREE.OrthographicCamera(-BOX_W / 2, BOX_W / 2, BOX_H, 0, 0.1, 10);
+    const cam = new THREE.OrthographicCamera(-BOX_W / 2, BOX_W / 2, BOX_H / 2, -BOX_H / 2, 0.1, 10);
     const prevRT = gl.getRenderTarget();
     const prevClear = gl.getClearColor(new THREE.Color());
     const prevAlpha = gl.getClearAlpha();
@@ -114,14 +118,15 @@ export class Crowd {
       };
       for (let f = 0; f < FRAMES; f++) {
         pose(f);
-        for (let v = 0; v < VIEWS.length; v++) {
-          const th = THREE.MathUtils.degToRad(VIEWS[v]);
-          cam.position.set(Math.sin(th) * 4, 0, Math.cos(th) * 4);
-          cam.lookAt(0, 0, 0);
-          cam.position.y = 0;
+        for (let v = 0; v < VIEWS.length * ELEVS.length; v++) {
+          const th = THREE.MathUtils.degToRad(VIEWS[Math.floor(v / ELEVS.length)]);
+          const el = THREE.MathUtils.degToRad(ELEVS[v % ELEVS.length]);
+          cam.position.set(Math.sin(th) * Math.cos(el) * 4, PIVOT + Math.sin(el) * 4, Math.cos(th) * Math.cos(el) * 4);
+          cam.lookAt(0, PIVOT, 0);
           cam.updateMatrixWorld();
-          const cell = (a * FRAMES + f) * VIEWS.length + v;
-          const cx = (cell % (ATLAS / CELL_W)) * CELL_W, cy = Math.floor(cell / (ATLAS / CELL_W)) * CELL_H;
+          const cell = (a * FRAMES + f) * VIEWS.length * ELEVS.length + v;
+          const cols = Math.floor(ATLAS / CELL_W);
+          const cx = (cell % cols) * CELL_W, cy = Math.floor(cell / cols) * CELL_H;
           for (const [rt, bodyMat, hairMat] of [[this.color, albedo, hairA], [this.normal, nrm, hairN]] as const) {
             rt.viewport.set(cx, cy, CELL_W, CELL_H);
             rt.scissor.set(cx, cy, CELL_W, CELL_H);
@@ -269,7 +274,16 @@ uniform float uFlash; varying float vFlash;
       .replace('#include <uv_vertex>', /* glsl */ `#include <uv_vertex>
       // billboard: upright, facing the camera; the view angle picks the baked yaw
       vec3 seat = iPos.xyz;
+      float sc = iLook.w;
+      vec3 pivot = seat + vec3( 0.0, ${PIVOT.toFixed(2)} * sc, 0.0 );
       vec2 toCam = normalize( uCam.xz - seat.xz );
+      vec3 toCam3 = normalize( uCam - pivot );
+      float elev = asin( clamp( toCam3.y, -1.0, 1.0 ) );
+      float ei = elev < -0.19 ? 0.0 : elev > 0.245 ? 2.0 : 1.0;
+      float eCap = ei < 0.5 ? ${((ELEVS[0] * Math.PI) / 180).toFixed(4)} : ei > 1.5 ? ${((ELEVS[2] * Math.PI) / 180).toFixed(4)} : 0.0;
+      vec3 bF = vec3( toCam.x * cos( eCap ), sin( eCap ), toCam.y * cos( eCap ) );
+      vec3 bR = vec3( -toCam.y, 0.0, toCam.x );
+      vec3 bU = cross( bR, bF );
       vec2 fwd = iFace;
       vec2 lx = vec2( fwd.y, -fwd.x );
       float ang = atan( dot( toCam, lx ), dot( toCam, fwd ) );
@@ -281,8 +295,8 @@ uniform float uFlash; varying float vFlash;
       if ( iMode < 0.5 ) frame = step( 0.5, fract( uTime * 0.07 + ph ) );
       else if ( iMode < 1.5 ) { float c = fract( uTime * ( 2.1 + ph * 0.8 ) + ph ); frame = 2.0 + floor( c * 4.0 ); }
       else frame = 6.0 + step( 0.5, fract( uTime * ( 1.2 + ph * 0.5 ) + ph ) );
-      float cell = ( iLook.x * ${FRAMES.toFixed(1)} + frame ) * 3.0 + view;
-      float cols = ${(ATLAS / CELL_W).toFixed(1)};
+      float cell = ( ( iLook.x * ${FRAMES.toFixed(1)} + frame ) * 3.0 + view ) * 3.0 + ei;
+      float cols = ${Math.floor(ATLAS / CELL_W).toFixed(1)};
       vCell = vec2( mod( cell, cols ), floor( cell / cols ) );
       vTint = iTint; vTintK = iLook.z; vCover = iPos.w;
       // phone / camera flashes (night): a random few per second across the bowl
@@ -291,14 +305,8 @@ uniform float uFlash; varying float vFlash;
       vFlash = uFlash * step( 0.99975, hsh ) * ( iMode > 0.5 ? 3.0 : 1.0 );
 `)
       .replace('#include <begin_vertex>', /* glsl */ `
-      vec3 transformed = vec3( 0.0 );
-      {
-        vec2 right = vec2( -toCam.y, toCam.x );
-        float s = iLook.w;
-        vec3 corner = vec3( right.x, 0.0, right.y ) * ( position.x * ${BOX_W.toFixed(3)} * s ) + vec3( 0.0, position.y * ${BOX_H.toFixed(3)} * s, 0.0 );
-        transformed = seat + corner;
-      }`)
-      .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize( vec3( uCam.x - iPos.x, 0.0, uCam.z - iPos.z ) );')
+      vec3 transformed = pivot + bR * ( position.x * ${BOX_W.toFixed(3)} * sc ) + bU * ( ( position.y - 0.5 ) * ${BOX_H.toFixed(3)} * sc );`)
+      .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = bF;')
       .replace('#include <project_vertex>', /* glsl */ `
       vec4 mvPosition = viewMatrix * vec4( transformed, 1.0 );
       gl_Position = projectionMatrix * mvPosition;`)

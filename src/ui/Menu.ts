@@ -48,7 +48,7 @@ export class Menu {
       f.appendChild(seg);
       panel.appendChild(f);
     };
-    field('venue', 'Venue', Object.values(VENUES).map((v) => [v.id, `${v.name.split(' ').slice(0, 2).join(' ')} · ${v.surface}`]));
+    field('venue', 'Venue', Object.values(VENUES).map((v) => [v.id, `${v.short} · ${v.surface}`]));
     field('sky', 'Conditions', [['day', 'Day'], ['overcast', 'Overcast'], ['sunset', 'Sunset'], ['night', 'Night']]);
     field('player', 'You play as', ROSTER.map((r, i) => [String(i), r.name]));
     field('level', 'Opponent', [['rookie', 'Rookie'], ['club', 'Club'], ['pro', 'Pro'], ['legend', 'Legend']]);

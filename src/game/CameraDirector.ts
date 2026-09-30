@@ -1,0 +1,167 @@
+import * as THREE from 'three';
+
+export type CamMode = 'broadcast' | 'high' | 'low' | 'intro' | 'side' | 'close' | 'replaySide' | 'replayBaseline' | 'replaySpider' | 'hawkeye';
+
+/**
+ * The director: a broadcast camera behind the human player's end (elevated, a long lens,
+ * gently tracking the ball and the player so the rally stays framed), plus the cuts a
+ * television producer would make — the opening flyover, a low courtside angle, a player
+ * close-up at the change of ends, replay angles, and the Hawk-Eye view.
+ */
+export class CameraDirector {
+  mode: CamMode = 'broadcast';
+  /** which end the broadcast camera sits behind (+1 near / −1 far) */
+  side: 1 | -1 = 1;
+  /** player camera preference: 0 broadcast, 1 high, 2 low */
+  pref = 0;
+  private pos = new THREE.Vector3(0, 8, 26);
+  private look = new THREE.Vector3(0, 0, 0);
+  private t = 0;
+  private shake = 0;
+  subject = new THREE.Vector3();
+  subject2 = new THREE.Vector3();
+  focusDist = 30;
+  /** a locked camera (tools / screenshots) */
+  fixed: { pos: THREE.Vector3; look: THREE.Vector3; fov: number } | null = null;
+
+  constructor(readonly camera: THREE.PerspectiveCamera) {}
+
+  cut(mode: CamMode) {
+    this.mode = mode;
+    this.t = 0;
+    this.snap = true;
+  }
+  private snap = true;
+
+  bump(k: number) {
+    this.shake = Math.max(this.shake, k);
+  }
+
+  update(dt: number, ball: THREE.Vector3, human: THREE.Vector3, opp: THREE.Vector3) {
+    this.t += dt;
+    if (this.fixed) {
+      this.camera.position.copy(this.fixed.pos);
+      this.camera.lookAt(this.fixed.look);
+      this.camera.fov = this.fixed.fov;
+      this.camera.updateProjectionMatrix();
+      return;
+    }
+    const s = this.side;
+    const cam = this.camera;
+    let fov = 36;
+    const wantPos = new THREE.Vector3(), wantLook = new THREE.Vector3();
+    let rate = 3.5;
+    switch (this.mode) {
+      case 'broadcast':
+      case 'high':
+      case 'low': {
+        const m = this.mode === 'broadcast' ? ['broadcast', 'high', 'low'][this.pref] : this.mode;
+        // follow the midpoint of the ball and the player, a little
+        const fx = THREE.MathUtils.clamp(ball.x * 0.45 + human.x * 0.55, -6, 6);
+        const push = THREE.MathUtils.clamp((11.9 - human.z * s) * 0.35, -1.2, 3.2);
+        if (m === 'high') {
+          wantPos.set(fx * 0.28, 13.5, s * (29 - push * 0.5));
+          wantLook.set(fx * 0.5, 0, s * -0.5);
+          fov = 34;
+        } else if (m === 'low') {
+          wantPos.set(fx * 0.4, 3.4, s * (21.5 - push * 0.6));
+          wantLook.set(fx * 0.55, 0.9, s * -3.5);
+          fov = 42;
+        } else {
+          wantPos.set(fx * 0.32, 8.4, s * (26.8 - push * 0.55));
+          wantLook.set(fx * 0.5, 0.0, s * 0.6);
+          fov = 38;
+        }
+        rate = 2.6;
+        break;
+      }
+      case 'intro': {
+        // a slow orbit high above the bowl, descending toward the broadcast position
+        const u = Math.min(1, this.t / 9);
+        const e = u * u * (3 - 2 * u);
+        const ang = -1.1 + e * 1.1 + Math.PI * 0.5 * (1 - e);
+        const r = 60 - e * 35.5;
+        wantPos.set(Math.sin(ang) * r * 0.6, 34 - e * 26.8, s * Math.cos(ang) * r);
+        wantLook.set(0, 0, 0);
+        fov = 40 - e * 3;
+        rate = 50;
+        break;
+      }
+      case 'side': {
+        // low beside the net post, looking along the net across the court
+        wantPos.set(9.2, 1.6, s * 2.5);
+        wantLook.set(0, 1.0, s * -1.5);
+        fov = 44;
+        rate = 50;
+        break;
+      }
+      case 'close': {
+        // a telephoto on the subject (a player walking, bouncing the ball)
+        const p = this.subject;
+        const dir = new THREE.Vector3(p.x * 0.3 + 3, 0, -Math.sign(p.z || 1) * 4.5).normalize();
+        wantPos.set(p.x + dir.x * 7.5, 1.65, p.z - Math.sign(p.z || 1) * 7.5);
+        wantLook.set(p.x, 1.25, p.z);
+        fov = 22;
+        rate = 6;
+        this.focusDist = wantPos.distanceTo(wantLook);
+        break;
+      }
+      case 'replaySide': {
+        wantPos.set(10.5, 1.2, ball.z * 0.55);
+        wantLook.set(ball.x * 0.4, 0.9, ball.z * 0.8);
+        fov = 40;
+        rate = 4;
+        this.focusDist = wantPos.distanceTo(ball);
+        break;
+      }
+      case 'replayBaseline': {
+        const hs = Math.sign(this.subject.z || 1);
+        wantPos.set(this.subject.x * 0.6 + 0.8, 1.35, hs * (HLc + 5.5));
+        wantLook.set(ball.x * 0.5, 1.0, ball.z * 0.6);
+        fov = 32;
+        rate = 5;
+        this.focusDist = wantPos.distanceTo(this.subject);
+        break;
+      }
+      case 'replaySpider': {
+        wantPos.set(ball.x * 0.7, 9.5, ball.z * 0.8 + 6);
+        wantLook.set(ball.x, 0.5, ball.z);
+        fov = 45;
+        rate = 3;
+        this.focusDist = wantPos.distanceTo(ball);
+        break;
+      }
+      case 'hawkeye': {
+        const p = this.subject;
+        wantPos.set(p.x + 0.9, 1.4, p.z + Math.sign(p.z || 1) * 2.2);
+        wantLook.set(p.x, 0.02, p.z);
+        fov = 30;
+        rate = 2;
+        break;
+      }
+    }
+    void opp;
+    if (this.snap) {
+      this.pos.copy(wantPos);
+      this.look.copy(wantLook);
+      this.snap = false;
+    } else {
+      const k = 1 - Math.exp(-rate * dt);
+      this.pos.lerp(wantPos, k);
+      this.look.lerp(wantLook, k);
+    }
+    cam.position.copy(this.pos);
+    if (this.shake > 0.001) {
+      cam.position.x += (Math.random() - 0.5) * this.shake * 0.06;
+      cam.position.y += (Math.random() - 0.5) * this.shake * 0.06;
+      this.shake *= Math.exp(-dt * 10);
+    }
+    cam.lookAt(this.look);
+    if (Math.abs(cam.fov - fov) > 0.01) {
+      cam.fov += (fov - cam.fov) * Math.min(1, dt * 4);
+      cam.updateProjectionMatrix();
+    }
+  }
+}
+
+const HLc = 11.885;

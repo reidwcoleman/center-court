@@ -1,0 +1,23 @@
+{
+  "name": "centercourt",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5210",
+    "build": "vite build",
+    "preview": "vite preview --port 5211",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "n8ao": "^2.0.1",
+    "postprocessing": "^6.39.5",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "playwright-core": "^1.63.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}

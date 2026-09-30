@@ -44,8 +44,8 @@ const STROKES: Record<StrokeKind, Key[]> = {
   fh: [
     { t: 0, head: [0.12, 1.08, 0.58], shaft: [-0.1, 0.45, 0.88], face: [-1, 0, 0], chest: 5, hips: 0, lean: 12, knee: 0.45, off: 'throat' },
     { t: 0.2, head: [0.62, 1.42, 0.05], shaft: [0.35, 0.8, -0.3], face: [-0.2, 0.2, -1], chest: 60, hips: 30, lean: 10, knee: 0.5, off: [0.25, 1.3, 0.55] },
-    { t: 0.36, head: [0.78, 1.22, -0.62], shaft: [0.25, 0.55, -0.8], face: [0.1, -0.9, 0.3], chest: 88, hips: 45, lean: 12, knee: 0.6, off: [0.55, 1.25, 0.55], pole: [0.2, -1, -0.4] },
-    { t: 0.47, head: [0.9, 0.62, -0.3], shaft: [0.3, -0.45, -0.84], face: [0.1, -0.3, 1], chest: 55, hips: 25, lean: 14, knee: 0.55, off: [0.35, 1.15, 0.35], pole: [0.3, -1, -0.2] },
+    { t: 0.36, head: [0.62, 1.32, -0.55], shaft: [0.18, 0.62, -0.76], face: [0.1, -0.9, 0.3], chest: 88, hips: 45, lean: 12, knee: 0.6, off: [0.55, 1.25, 0.55], pole: [0.35, -1, -0.7] },
+    { t: 0.47, head: [0.86, 0.64, -0.3], shaft: [0.3, -0.45, -0.84], face: [0.1, -0.3, 1], chest: 55, hips: 25, lean: 14, knee: 0.55, off: [0.35, 1.15, 0.35], pole: [0.3, -1, -0.2] },
     { t: CONTACT, head: [0.78, 0.95, 0.45], shaft: [0.95, -0.12, 0.22], face: [0, -0.08, 1], chest: 12, hips: 5, lean: 12, knee: 0.4, off: [-0.1, 1.1, 0.2], pole: [0.2, -1, 0] },
     { t: 0.7, head: [0.18, 1.62, 0.42], shaft: [-0.35, 0.9, 0.25], face: [-0.6, 0.2, 0.75], chest: -30, hips: -18, lean: 10, knee: 0.35, off: [-0.35, 1.05, 0.05], pole: [0.6, -0.6, 0] },
     { t: 1, head: [-0.42, 1.48, -0.3], shaft: [-0.3, -0.12, -0.94], face: [-0.8, 0.3, 0.4], chest: -58, hips: -32, lean: 8, knee: 0.3, off: [-0.25, 1.2, 0.1], pole: [0.8, -0.3, 0.2] },
@@ -53,7 +53,7 @@ const STROKES: Record<StrokeKind, Key[]> = {
   bh: [
     { t: 0, head: [0.1, 1.08, 0.58], shaft: [-0.1, 0.45, 0.88], face: [-1, 0, 0], chest: 5, hips: 0, lean: 12, knee: 0.45, off: 'throat' },
     { t: 0.2, head: [-0.55, 1.4, 0.0], shaft: [-0.35, 0.8, -0.35], face: [0.2, 0.2, -1], chest: -60, hips: -30, lean: 10, knee: 0.5, off: 'grip' },
-    { t: 0.36, head: [-0.8, 1.2, -0.6], shaft: [-0.25, 0.55, -0.8], face: [-0.1, -0.9, 0.3], chest: -90, hips: -48, lean: 12, knee: 0.6, off: 'grip', pole: [-0.3, -1, -0.3] },
+    { t: 0.36, head: [-0.66, 1.3, -0.55], shaft: [-0.2, 0.6, -0.77], face: [-0.1, -0.9, 0.3], chest: -90, hips: -48, lean: 12, knee: 0.6, off: 'grip', pole: [-0.3, -1, -0.6] },
     { t: 0.47, head: [-0.88, 0.62, -0.28], shaft: [-0.3, -0.45, -0.84], face: [-0.1, -0.3, 1], chest: -55, hips: -25, lean: 14, knee: 0.55, off: 'grip', pole: [-0.2, -1, -0.2] },
     { t: CONTACT, head: [-0.72, 0.95, 0.45], shaft: [-0.95, -0.1, 0.25], face: [0, -0.08, 1], chest: -12, hips: -5, lean: 12, knee: 0.4, off: 'grip', pole: [-0.2, -1, 0.2] },
     { t: 0.7, head: [-0.1, 1.6, 0.45], shaft: [0.35, 0.9, 0.25], face: [0.6, 0.2, 0.75], chest: 30, hips: 18, lean: 10, knee: 0.35, off: 'grip', pole: [-0.5, -0.8, 0] },
@@ -156,6 +156,8 @@ export class PlayerRig {
   private hipH = 0.95;
   private armLen = 0.6;
   private base = new Map<THREE.Bone, THREE.Quaternion>();
+  /** a foot landed (world x, z, heading) — footprints on clay */
+  onStep: ((x: number, z: number, heading: number, side: number) => void) | null = null;
 
   constructor(readonly human: Human, racketColors?: [string, string, string]) {
     this.group = human.root;
@@ -442,6 +444,19 @@ export class PlayerRig {
       } else {
         f.t = Math.min(1, f.t + dt / stepDur);
         f.plant.lerpVectors(f.from, f.to, smooth(f.t));
+        if (f.t >= 1) this.onStep?.(f.plant.x, f.plant.z, rootYaw, f.side);
+      }
+    }
+    // running: a foot plant is the foot bone reaching the floor after a stride
+    if (stance < 0.5) {
+      for (const f of this.feet) {
+        const fp = f.bone.getWorldPosition(new THREE.Vector3());
+        const st = f as Foot & { up?: boolean };
+        if (fp.y > this.ankleY + 0.07) st.up = true;
+        else if (st.up && fp.y < this.ankleY + 0.025) {
+          st.up = false;
+          this.onStep?.(fp.x, fp.z, rootYaw, f.side);
+        }
       }
     }
     if (stance < 0.02) return;

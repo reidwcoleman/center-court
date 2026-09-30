@@ -115,6 +115,14 @@ export class Game {
     this.players = [await make(a, 0, !cfg.demo), await make(b, 1, false)];
     this.names = [a.short, b.short];
     this.replay = new Replay(this.players, this.ballView.mesh);
+    // footprints and slides on clay (a slide: a hard stop from a run)
+    for (const p of this.players) {
+      p.rig.onStep = (x, z, heading) => {
+        if (this.world.venue.surface !== 'clay') return;
+        this.world.marks.stamp(x, z, 0.27, 0.1, heading, 1, 0.55);
+        if (p.vel.length() > 2.5) this.world.dust.puff(x, z, 2, 0.4);
+      };
+    }
     this.hud.names = this.names;
     this.match = new Match({ sets: cfg.sets, gamesPerSet: 6, finalSetTiebreak10: false, noAd: false }, Math.random() < 0.5 ? 0 : 1);
     this.applySides();
@@ -647,7 +655,10 @@ export class Game {
     this.ballView.bounce();
     const surf = this.world.venue.surface;
     this.audio.bounce(surf, e.speed + e.vy, this.pan({ x: e.x, y: 0, z: e.z }), Math.hypot(e.x - this.camera.position.x, e.z - this.camera.position.z));
-    if (surf === 'clay') this.world.marks.stamp(e.x, e.z, 0.085, 0.06, Math.atan2(this.ball.v.x, this.ball.v.z), 0, 0.9);
+    if (surf === 'clay') {
+      this.world.marks.stamp(e.x, e.z, 0.11, 0.075, Math.atan2(this.ball.v.x, this.ball.v.z), 0, 1);
+      if (e.speed > 8) this.world.dust.puff(e.x, e.z, 3, 0.35, this.ball.v.x * 0.03, this.ball.v.z * 0.03);
+    }
     else if (surf === 'hard' && e.speed > 18) this.world.marks.stamp(e.x, e.z, 0.1, 0.05, Math.atan2(this.ball.v.x, this.ball.v.z), 2, 0.25);
     if (this.pendingPoint || this.lastHitter === null) return;
     if (this.state !== 'rally' && this.state !== 'serveFlight') return;
@@ -909,11 +920,25 @@ export class Game {
     for (const p of this.players) p.drive(dt, new THREE.Vector3());
   }
 
-  private footSounds(p: Player, _dt: number) {
+  private slideT = [0, 0];
+  private footSounds(p: Player, dt: number) {
     const i = p.index;
     const dv = p.vel.clone().sub(this.prevVel[i]);
+    const prevSpeed = this.prevVel[i].length();
     this.prevVel[i].copy(p.vel);
-    if (this.world.venue.surface !== 'hard') return;
+    const surf = this.world.venue.surface;
+    // clay: braking hard from a run is a slide — a long scrape and a cloud of brick dust
+    if (surf === 'clay' && prevSpeed > 3.2 && dv.length() / Math.max(dt, 1e-3) > 9 && this.clock - this.slideT[i] > 0.5) {
+      this.slideT[i] = this.clock;
+      const h = Math.atan2(this.prevVel[i].x || dv.x, this.prevVel[i].z || dv.z);
+      for (let k = 0; k < 4; k++) {
+        const t = k * 0.18;
+        this.world.marks.stamp(p.pos.x + Math.sin(h) * t, p.pos.z + Math.cos(h) * t, 0.5, 0.16, h, 1, 0.8);
+      }
+      this.world.dust.puff(p.pos.x, p.pos.z, 14, 1.4, Math.sin(h) * prevSpeed * 0.3, Math.cos(h) * prevSpeed * 0.3);
+      this.audio.bounce('clay', 12, this.pan(p.pos), p.pos.distanceTo(this.camera.position));
+    }
+    if (surf !== 'hard') return;
     // a hard stop or change of direction squeaks
     if (dv.length() > 0.19 && p.vel.length() > 1.2 && this.clock - this.lastSqueak[i] > 0.45 && Math.random() < 0.35) {
       this.lastSqueak[i] = this.clock;

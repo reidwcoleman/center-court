@@ -47,6 +47,8 @@ export class Sky {
   name: SkyName = 'day';
   preset: Preset = PRESETS.day;
   exposure = 1;
+  /** light on a horizontal surface (sun + sky + floods) */
+  horizontal = 1;
   private meta: Record<string, SkyMeta> = {};
   private textures = new Map<string, THREE.Texture>();
   private mat: THREE.ShaderMaterial;
@@ -194,6 +196,7 @@ export class Sky {
     // exposure: horizontal irradiance (sun + sky) → mid grey. A grey card (albedo 0.18) under E reads E·0.18/π.
     const skyE = (m.skyE[0] * 0.2126 + m.skyE[1] * 0.7152 + m.skyE[2] * 0.0722) * p.skyGain;
     const horiz = E * Math.max(0, this.sunDir.y) + skyE + floodH;
+    this.horizontal = horiz;
     this.exposure = (p.key * Math.PI) / Math.max(horiz, 1e-3) * (p.night ? 0.8 : 0.9);
     this.placeSunShadow();
   }

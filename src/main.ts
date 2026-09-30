@@ -115,10 +115,11 @@ input.onCamera = () => {
 let last = performance.now();
 let time = 0;
 let raf = 0;
+let held = false;
 function frame(now: number) {
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
-  step(dt);
+  if (!held) step(dt);
   raf = requestAnimationFrame(frame);
 }
 function step(dt: number) {
@@ -130,6 +131,7 @@ function step(dt: number) {
     else game.update(gdt);
   }
   crowd?.update(gdt, camera);
+  if (crowd) crowd.uniforms.uFlash.value = world.sky.preset.night ? 1 / world.sky.exposure : 0;
   world.marks.flush();
   renderer.setExposure(world.sky.exposure * exMul);
   renderer.render(dt);
@@ -157,6 +159,8 @@ W.__cam = (x: number | null, y = 0, z = 0, tx = 0, ty = 0, tz = 0, fov?: number)
   game.dir.fixed = { pos: new THREE.Vector3(x, y, z), look: new THREE.Vector3(tx, ty, tz), fov: fov ?? camera.fov };
 };
 W.__sky = (n: SkyName) => world.setSky(n);
+/** stop the live loop (tools pump frames by hand and screenshot between them) */
+W.__hold = (on: boolean) => { held = on; };
 /** a stand-in human for tests: arms a shot whenever the ball is coming (exercises the input path) */
 W.__autoHuman = (type = 'topspin') => {
   const tick = () => {

@@ -36,6 +36,7 @@ export class Crowd {
     uTime: { value: 0 },
     uCam: { value: new THREE.Vector3() },
     uAvatars: { value: 1 },
+    uFlash: { value: 0 },
   };
   count = 0;
   avatars = 0;
@@ -263,6 +264,7 @@ function crowdMaterial(u: Crowd['uniforms']): THREE.MeshLambertMaterial {
 attribute vec4 iPos; attribute vec2 iFace; attribute vec4 iLook; attribute vec3 iTint; attribute float iMode;
 uniform float uTime, uAvatars; uniform vec3 uCam;
 varying vec2 vCell; varying float vFlip; varying vec3 vTint; varying float vTintK; varying float vCover;
+uniform float uFlash; varying float vFlash;
 `)
       .replace('#include <uv_vertex>', /* glsl */ `#include <uv_vertex>
       // billboard: upright, facing the camera; the view angle picks the baked yaw
@@ -283,6 +285,10 @@ varying vec2 vCell; varying float vFlip; varying vec3 vTint; varying float vTint
       float cols = ${(ATLAS / CELL_W).toFixed(1)};
       vCell = vec2( mod( cell, cols ), floor( cell / cols ) );
       vTint = iTint; vTintK = iLook.z; vCover = iPos.w;
+      // phone / camera flashes (night): a random few per second across the bowl
+      float slot = floor( uTime * 9.0 );
+      float hsh = fract( sin( slot * 12.9898 + ph * 7919.0 ) * 43758.5453 );
+      vFlash = uFlash * step( 0.99975, hsh ) * ( iMode > 0.5 ? 3.0 : 1.0 );
 `)
       .replace('#include <begin_vertex>', /* glsl */ `
       vec3 transformed = vec3( 0.0 );
@@ -302,6 +308,7 @@ varying vec2 vCell; varying float vFlip; varying vec3 vTint; varying float vTint
       .replace('#include <common>', /* glsl */ `#include <common>
 uniform sampler2D uColorAtlas, uNormalAtlas;
 varying vec2 vCell; varying float vFlip; varying vec3 vTint; varying float vTintK; varying float vCover;
+varying float vFlash;
 vec2 atlasUv( vec2 uv ) {
   vec2 u = vec2( vFlip > 0.5 ? 1.0 - uv.x : uv.x, uv.y );
   vec2 cellSize = vec2( ${(CELL_W / ATLAS).toFixed(6)}, ${(CELL_H / ATLAS).toFixed(6)} );
@@ -321,6 +328,9 @@ vec4 gNrm;`)
       base *= 1.0 - 0.35 * vCover;
       diffuseColor.rgb = base;
       diffuseColor.a = alb.a;`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      // the flash: a hot point at the upper body
+      totalEmissiveRadiance += vec3( 1.0, 0.97, 0.92 ) * vFlash * 60.0 * smoothstep( 0.35, 0.0, distance( vMapUv, vec2( 0.5, 0.62 ) ) );`)
       .replace('#include <normal_fragment_maps>', /* glsl */ `
       {
         vec3 mapN = gNrm.xyz * 2.0 - 1.0;

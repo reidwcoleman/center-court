@@ -7,7 +7,7 @@ const args = process.argv.slice(2);
 const all = (k) => args.flatMap((a, i) => (a === '--' + k ? [args[i + 1]] : []));
 const opt = (k, d) => all(k)[0] ?? d;
 const port = opt('port', '5210');
-const url = `http://localhost:${port}${opt('url', '/')}`;
+const url = opt('base', '') ? opt('base') + opt('url', '') : `http://localhost:${port}${opt('url', '/')}`;
 const W = +opt('w', 1600), H = +opt('h', 900);
 const evals = all('eval');
 const outs = all('out');

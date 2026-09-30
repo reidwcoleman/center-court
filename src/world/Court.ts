@@ -162,16 +162,21 @@ vec3 courtSurface( vec2 p, float lines, vec3 viewW, out float rough, out vec3 nW
     c = uIn * ( 0.84 + 0.26 * nz1.r + 0.12 * ( nz2.g - 0.5 ) ) * ( 0.72 + 0.56 * g );
     float dry = smoothstep( 0.42, 0.72, nz1.r * 0.6 + nz2.g * 0.4 );
     c = mix( c, c * vec3( 1.17, 1.1, 1.05 ), dry * 0.55 );
-    float ring = sin( length( p - vec2( 0.0, sign( p.y ) * 5.0 ) ) * 8.0 + nz2.r * 5.0 );
-    c *= 1.0 + 0.022 * ring * ( 1.0 - wz );
+    // the drag mat's sweep: broad arcs of alternating nap
+    float ring = sin( length( p - vec2( sign( p.x + 0.001 ) * 2.0, sign( p.y ) * 5.0 ) ) * 3.1 + nz2.r * 3.0 );
+    c *= 1.0 + 0.045 * smoothstep( -0.2, 0.9, ring ) * ( 1.0 - wz ) - 0.02;
+    // loose top-dressing: lighter, dustier patches that collect off the play lines
+    float loose = smoothstep( 0.55, 0.85, texture2D( uNoise, p * 0.045 + 0.37 ).g );
+    c = mix( c, c * vec3( 1.2, 1.14, 1.1 ), loose * 0.5 );
     float scuffed = wz * uWear * smoothstep( 0.3, 0.75, nz3.b * 0.7 + nz2.b * 0.3 );
     c = mix( c, c * vec3( 0.84, 0.78, 0.76 ), scuffed );
     // marks: ball marks (r) show the smoother, darker brick; footprints (g) lighter, scraped
-    c *= 1.0 - 0.28 * mk.r;
-    c = mix( c, c * vec3( 1.12, 1.06, 1.02 ), mk.g * 0.8 );
+    // marks: ball marks (r) and footprints / slides (g) compress the brick: darker, smoother
+    c *= 1.0 - 0.34 * mk.r - 0.2 * mk.g;
+    c = mix( c, c * vec3( 1.1, 1.06, 1.03 ), smoothstep( 0.05, 0.25, mk.g ) * smoothstep( 0.6, 0.25, mk.g ) * 0.6 );
     vec3 tape = uLine * mix( vec3( 1.0 ), vec3( 1.0, 0.8, 0.66 ), clamp( 0.3 * smoothstep( 0.35, 0.9, nz3.g ) + 0.22 * nz2.b + 0.4 * mk.g, 0.0, 1.0 ) );
     c = mix( c, tape, lines );
-    rough = mix( 0.93, 0.62, lines ) - 0.15 * mk.r;
+    rough = mix( 0.93, 0.62, lines ) - 0.18 * mk.r - 0.1 * mk.g;
     nW = grainNormal( p, 0.8, mix( 0.55, 0.12, lines ) * ( 1.0 - 0.6 * mk.r ) );
   } else {
     // ---- grass: mowing stripes, bent blades catching the light by view direction

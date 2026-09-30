@@ -54,6 +54,8 @@ export class Sky {
   private envRT: THREE.WebGLRenderTarget | null = null;
   private cubeRT: THREE.WebGLCubeRenderTarget;
   private cubeCam: THREE.CubeCamera;
+  /** night: four floodlight banks on the roof corners (spotlights, each with its own shadow) */
+  readonly floods: THREE.SpotLight[] = [];
 
   constructor(readonly scene: THREE.Scene, readonly gl: THREE.WebGLRenderer) {
     this.mat = new THREE.ShaderMaterial({
@@ -112,6 +114,21 @@ export class Sky {
     sh.camera.far = 400;
     scene.add(this.sun, this.sun.target);
 
+    for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      const l = new THREE.SpotLight(0xfff1e0, 1, 0, 0.62, 0.75, 0);
+      l.position.set(sx * 31, 33, sz * 41);
+      l.target.position.set(sx * -1.5, 0, sz * -2.5);
+      l.castShadow = true;
+      l.shadow.mapSize.set(2048, 2048);
+      l.shadow.bias = -0.00015;
+      l.shadow.normalBias = 0.03;
+      l.shadow.radius = 2.5;
+      l.shadow.camera.near = 20;
+      l.shadow.camera.far = 110;
+      l.visible = false;
+      this.floods.push(l);
+      scene.add(l, l.target);
+    }
     this.pmrem = new THREE.PMREMGenerator(gl);
     this.cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: false });
     this.cubeCam = new THREE.CubeCamera(0.5, 1200, this.cubeRT);
@@ -167,10 +184,17 @@ export class Sky {
     this.sun.castShadow = this.sun.visible;
     this.sun.shadow.radius = p.shadowSoft;
     u.intensity.value = p.skyGain;
+    // floodlights at night: ~0.8 each on the court (four banks, from ~40° up)
+    let floodH = 0;
+    for (const l of this.floods) {
+      l.visible = !!p.night;
+      l.intensity = p.night ? 1.05 : 0;
+      floodH += p.night ? 1.05 * 0.62 : 0;
+    }
     // exposure: horizontal irradiance (sun + sky) → mid grey. A grey card (albedo 0.18) under E reads E·0.18/π.
     const skyE = (m.skyE[0] * 0.2126 + m.skyE[1] * 0.7152 + m.skyE[2] * 0.0722) * p.skyGain;
-    const horiz = E * Math.max(0, this.sunDir.y) + skyE;
-    this.exposure = p.night ? 1 : (p.key * Math.PI) / Math.max(horiz, 1e-3) * 0.9;
+    const horiz = E * Math.max(0, this.sunDir.y) + skyE + floodH;
+    this.exposure = (p.key * Math.PI) / Math.max(horiz, 1e-3) * (p.night ? 0.8 : 0.9);
     this.placeSunShadow();
   }
 

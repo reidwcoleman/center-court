@@ -14,6 +14,7 @@ export class HUD {
   private meter: HTMLElement;
   private meterFill: HTMLElement;
   private hint: HTMLElement;
+  private tag: HTMLElement;
   private bannerTimer = 0;
   private chipTimer = 0;
   names: [string, string] = ['Player', 'CPU'];
@@ -32,7 +33,8 @@ export class HUD {
     this.meter.appendChild(this.meterFill);
     this.hint = el('div', 'hint');
     this.hint.innerHTML = `<b>WASD</b> move · <b>J</b> topspin · <b>K</b> flat · <b>L</b> slice · <b>I</b> lob · <b>U</b> drop · hold to power up · aim with the direction you hold at contact · <b>C</b> camera · <b>Esc</b> pause`;
-    this.root.append(this.bug, this.banner, this.chip, this.meter, this.hint);
+    this.tag = el('div', 'rtag', '<span class="dot"></span>REPLAY');
+    this.root.append(this.bug, this.banner, this.chip, this.meter, this.hint, this.tag);
   }
 
   show(on: boolean) {
@@ -73,6 +75,11 @@ export class HUD {
     }
     this.meter.classList.add('on');
     this.meterFill.style.transform = `scaleX(${Math.max(0.02, Math.min(1, v))})`;
+  }
+
+  replayTag(on: boolean) {
+    this.tag.classList.toggle('on', on);
+    this.bug.style.opacity = on ? '0' : '1';
   }
 
   hideHint() {

@@ -5,6 +5,7 @@ import { Net } from './Net.ts';
 import { Stadium } from './Stadium.ts';
 import { VENUES, type Venue } from './venues.ts';
 import { Marks } from './Marks.ts';
+import { Props } from './Props.ts';
 
 /** everything static: sky, court, net, stadium (the crowd and people are added by the game) */
 export class World {
@@ -13,6 +14,7 @@ export class World {
   court!: Court;
   net!: Net;
   stadium!: Stadium;
+  props!: Props;
   marks: Marks;
   venue: Venue;
   /** objects hidden while the environment map is captured (people, ball) */
@@ -30,25 +32,31 @@ export class World {
     this.court = new Court(this.venue, this.marks.texture);
     this.net = new Net();
     this.stadium = new Stadium(this.venue);
-    await Promise.all([this.court.load(), this.stadium.build(), this.sky.set(skyName ?? this.venue.sky)]);
-    this.scene.add(this.court.mesh, this.net.group, this.stadium.group);
+    this.props = new Props(this.venue);
+    await Promise.all([this.court.load(), this.stadium.build(), this.sky.set(skyName ?? this.venue.sky), this.props.build()]);
+    this.scene.add(this.court.mesh, this.net.group, this.stadium.group, this.props.group);
+    for (const h of this.props.people) this.dynamic.push(h.root);
   }
 
   /** after everything is in the scene: capture the environment */
   finalize() {
     this.stadium.setLedLevel(this.sky.exposure, !!this.sky.preset.night);
+    this.props.setLevel(this.sky.exposure);
     this.sky.captureEnv(this.dynamic);
   }
 
   async setSky(name: SkyName) {
     await this.sky.set(name);
     this.stadium.setLedLevel(this.sky.exposure, !!this.sky.preset.night);
+    this.props.setLevel(this.sky.exposure);
     this.scene.environment = null;
     this.sky.captureEnv(this.dynamic);
   }
 
+  readonly ballPos = new THREE.Vector3(0, 1, 0);
   update(dt: number, t: number) {
     this.net.update(dt);
     this.stadium.update(t);
+    this.props.update(dt, this.ballPos);
   }
 }

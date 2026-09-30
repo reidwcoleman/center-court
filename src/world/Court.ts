@@ -14,7 +14,7 @@ import type { Venue } from './venues.ts';
  */
 export class Court {
   readonly mesh: THREE.Mesh;
-  readonly material: THREE.MeshPhysicalMaterial;
+  material: THREE.MeshPhysicalMaterial;
   readonly uniforms: Record<string, THREE.IUniform>;
 
   constructor(venue: Venue, marks: THREE.Texture) {

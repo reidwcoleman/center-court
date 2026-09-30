@@ -10,6 +10,7 @@ import { BallView } from './BallView.ts';
 import { Input, type ShotType } from './Input.ts';
 import { aiChooseShot, aiServe, AI_LEVELS, type Difficulty } from './AI.ts';
 import { CameraDirector } from './CameraDirector.ts';
+import { Replay, HawkEye } from './Replay.ts';
 import type { World } from '../world/World.ts';
 import type { Crowd } from '../people/Crowd.ts';
 import type { HUD } from '../ui/HUD.ts';
@@ -31,7 +32,7 @@ export const ROSTER: RosterEntry[] = [
   { avatar: 'Sports_Female_02', name: 'Elena Marsh', short: 'E. Marsh', outfit: { top: '#f7f7f4', shorts: '#23324f', shoes: '#f2f2f2' }, racket: ['#f1f1ec', '#ff5aa5', '#f1f1ec'] },
 ];
 
-type State = 'idle' | 'preServe' | 'toss' | 'serveFlight' | 'rally' | 'pointOver' | 'changeover' | 'matchOver';
+type State = 'idle' | 'preServe' | 'toss' | 'serveFlight' | 'rally' | 'pointOver' | 'replay' | 'hawkeye' | 'changeover' | 'matchOver';
 
 export interface GameConfig {
   level: Difficulty;
@@ -74,6 +75,14 @@ export class Game {
   private prevVel = [new THREE.Vector3(), new THREE.Vector3()];
   private hitPause = 0;
   onMatchOver: ((m: Match) => void) | null = null;
+  /** depth of field for replays (set by main) */
+  onDof: ((on: boolean, focus?: number, range?: number) => void) | null = null;
+  replay!: Replay;
+  hawk: HawkEye;
+  private highlight: { kind: 'rally' | 'ace' | 'winner'; hitter: 0 | 1 } | null = null;
+  private close: { x: number; z: number; inside: boolean; mm: number; t: number; hitT: number } | null = null;
+  private lastHitT = 0;
+  private replayDone = false;
   /** event log for tools (tools/play.mjs) */
   readonly log: string[] = [];
   private say(s: string) {
@@ -84,6 +93,8 @@ export class Game {
 
   constructor(readonly world: World, readonly camera: THREE.PerspectiveCamera, readonly input: Input, readonly hud: HUD, readonly audio: Audio, readonly crowd: Crowd | null) {
     this.dir = new CameraDirector(camera);
+    this.hawk = new HawkEye(hud.root);
+    world.scene.add(this.hawk.group);
     world.scene.add(this.ballView.mesh, this.ballView.streak);
     world.dynamic.push(this.ballView.mesh, this.ballView.streak);
     this.ball.surface = world.venue.surface;
@@ -103,6 +114,7 @@ export class Game {
     const a = ROSTER[cfg.human], b = ROSTER[cfg.cpu];
     this.players = [await make(a, 0, !cfg.demo), await make(b, 1, false)];
     this.names = [a.short, b.short];
+    this.replay = new Replay(this.players, this.ballView.mesh);
     this.hud.names = this.names;
     this.match = new Match({ sets: cfg.sets, gamesPerSet: 6, finalSetTiebreak10: false, noAd: false }, Math.random() < 0.5 ? 0 : 1);
     this.applySides();
@@ -120,8 +132,13 @@ export class Game {
     this.dir.side = this.players[0].side;
   }
 
+  private boards(speed?: number) {
+    this.world.props.score(this.match, this.names, this.match.currentServer, speed);
+  }
+
   begin() {
     this.hud.score(this.match, this.match.currentServer);
+    this.boards();
     this.setupPoint();
     this.dir.cut('broadcast');
   }
@@ -159,6 +176,11 @@ export class Game {
     this.receiverTouched = false;
     this.dribbles = 0;
     this.dribbleT = 0;
+    this.replay?.clear();
+    this.highlight = null;
+    this.close = null;
+    this.replayDone = false;
+    this.hawk.hide();
     this.aiServeAt = this.clock + 1.6 + Math.random() * 1.4;
     this.setState('preServe');
     this.input.clearPresses();
@@ -183,6 +205,11 @@ export class Game {
     this.stateT += dt;
     this.input.pollPad();
     const [p0, p1] = this.players;
+    if (this.state === 'replay' || this.state === 'hawkeye') {
+      this.replayTick(dt);
+      this.hud.update(dt);
+      return;
+    }
     switch (this.state) {
       case 'preServe': this.preServe(dt); break;
       case 'toss': this.toss(dt); break;
@@ -224,6 +251,8 @@ export class Game {
       this.ball.w = v3();
     }
     this.ballView.update(this.ball.p, this.ball.w, this.ball.v, dt, this.camera.position);
+    this.world.ballPos.copy(look);
+    if (this.state === 'toss' || this.state === 'serveFlight' || this.state === 'rally' || (this.state === 'pointOver' && this.stateT < 1.2)) this.replay.record(dt, this.clock);
     // camera
     const hp = this.human.pos;
     this.dir.update(dt, look, hp, this.players[1].pos);
@@ -353,6 +382,8 @@ export class Game {
     this.ball.set(contact, sol.v, sol.w);
     this.ball.bounces = 0;
     this.isServe = true;
+    this.lastHitT = this.clock;
+    this.replay.mark('hit', this.clock, contact.x, contact.z);
     this.lastHitter = this.serverIdx;
     this.bouncesAfterHit = 0;
     this.bounceSide = 0;
@@ -360,6 +391,7 @@ export class Game {
     this.receiverTouched = false;
     const kmh = sol.speed * 3.6;
     this.hud.serveSpeed(kmh);
+    this.boards(kmh);
     this.say(`serve ${this.names[this.serverIdx]} ${shot.type} ${kmh.toFixed(0)}kmh target(${target.x.toFixed(2)},${target.z.toFixed(2)}) ok=${sol.ok} clear=${sol.netClear.toFixed(2)} second=${second}`);
     const st = this.match.stats[this.serverIdx];
     st.fastestServe = Math.max(st.fastestServe, kmh);
@@ -535,9 +567,10 @@ export class Game {
       power = shot.power;
       aimX = shot.aimX;
       aimD = shot.aimD;
-      // the AI's consistency roll
+      // the AI's consistency roll, worse under pressure (pace, stretch)
       const L = AI_LEVELS[this.cfg.level];
-      if (Math.random() > L.consistency) quality *= 0.55;
+      const pressure = Math.min(0.25, Math.max(0, plan.late + 0.25)) + Math.min(0.2, Math.hypot(this.ball.v.x, this.ball.v.z) / 150);
+      if (Math.random() > L.consistency - pressure) quality *= 0.45 + Math.random() * 0.2;
     }
     const type = shot.type;
     const incoming = Math.hypot(this.ball.v.x, this.ball.v.y, this.ball.v.z);
@@ -554,7 +587,8 @@ export class Game {
     if (plan.volley) depth = Math.min(depth, 8.5);
     depth = Math.min(depth, HL - 0.55);
     const skill = p.skill;
-    const sigma = (0.22 + (1 - quality) * 1.5 + power * power * 0.45 + (incoming / 45) * 0.35) * (1.35 - skill.accuracy);
+    const stretched = plan.late > -0.12 ? 0.35 : 0;
+    const sigma = (0.34 + (1 - quality) * 1.9 + power * power * 0.75 + (incoming / 40) * 0.5 + stretched) * (1.4 - skill.accuracy);
     const target = { x: THREE.MathUtils.clamp(tx * s, -4.6, 4.6) + gauss() * sigma, z: -s * depth + gauss() * sigma * 1.2 };
     const pw = power * skill.power * (0.55 + 0.45 * quality);
     let spec: ShotSpec;
@@ -579,6 +613,8 @@ export class Game {
     this.bouncesAfterHit = 0;
     this.bounceSide = 0;
     this.rallyShots++;
+    this.lastHitT = this.clock;
+    this.replay.mark('hit', this.clock, contact.x, contact.z);
     this.say(`hit ${this.names[p.index]} ${type} q=${quality.toFixed(2)} pw=${power.toFixed(2)} ${(sol.speed * 3.6).toFixed(0)}kmh from(${contact.x.toFixed(1)},${contact.y.toFixed(2)},${contact.z.toFixed(1)}) to(${target.x.toFixed(1)},${target.z.toFixed(1)}) ok=${sol.ok}${plan.volley ? ' volley' : ''}`);
     const kind = type === 'slice' || type === 'drop' ? 'slice' : isVolley ? 'volley' : 'drive';
     this.audio.hit(Math.min(1, sol.speed / 40), kind, this.pan(contact), p.pos.distanceTo(this.camera.position));
@@ -607,6 +643,7 @@ export class Game {
     }
     if (e.kind !== 'bounce') return;
     this.say(`bounce (${e.x.toFixed(2)},${e.z.toFixed(2)}) v=${e.speed.toFixed(1)}`);
+    this.replay?.mark('bounce', this.clock, e.x, e.z);
     this.ballView.bounce();
     const surf = this.world.venue.surface;
     this.audio.bounce(surf, e.speed + e.vy, this.pan({ x: e.x, y: 0, z: e.z }), Math.hypot(e.x - this.camera.position.x, e.z - this.camera.position.z));
@@ -628,7 +665,7 @@ export class Game {
         const inZ = e.z * -S.side >= -tol && e.z * -S.side <= SERVICE + tol;
         const inX = e.x * boxSign >= -tol && Math.abs(e.x) <= HSW + tol;
         const good = side === -S.side && inZ && inX;
-        this.closeCall(e.x, e.z, good);
+        this.closeCall(e.x, e.z, good, true);
         if (good && this.netCord) {
           this.hud.call('Let', '', 1.5);
           this.audio.say('Let');
@@ -677,9 +714,12 @@ export class Game {
   }
 
   /** a close line call gets a murmur (and a Hawk-Eye look later) */
-  private closeCall(x: number, z: number, _good: boolean) {
-    const dx = Math.min(Math.abs(Math.abs(x) - HSW), Math.abs(Math.abs(z) - HL));
+  private closeCall(x: number, z: number, good: boolean, box = false) {
+    // signed distance of the ball's edge to the nearest line it could have been called on (mm)
+    const edges = box ? [Math.abs(Math.abs(x) - HSW), Math.abs(Math.abs(z) - SERVICE), Math.abs(x)] : [Math.abs(Math.abs(x) - HSW), Math.abs(Math.abs(z) - HL)];
+    const dx = Math.min(...edges);
     if (dx < 0.06) this.audio.ooh(0.5);
+    if (dx < 0.045) this.close = { x, z, inside: good, mm: (dx - 0.0) * 1000 * (good ? 1 : -1), t: this.clock, hitT: this.lastHitT };
   }
 
   private faultAt = 0;
@@ -725,6 +765,9 @@ export class Game {
 
   private awardPoint(w: 0 | 1, reason: PointReason) {
     this.faultCheck = null;
+    if (reason === 'ace') this.highlight = { kind: 'ace', hitter: w };
+    else if (reason === 'winner' && this.rallyShots >= 3) this.highlight = { kind: 'winner', hitter: w };
+    else if (this.rallyShots >= 9) this.highlight = { kind: 'rally', hitter: w };
     const res = this.match.pointTo(w, reason);
     this.say(`POINT ${this.names[w]} (${reason}) rally=${this.rallyShots} → ${this.match.call(this.names)} | games ${this.match.sets.map((x) => x.join('-')).join(' ')}`);
     this.lastResult = res;
@@ -749,7 +792,8 @@ export class Game {
       else this.hud.call(call, '', 2);
       setTimeout(() => this.audio.say(call), title === 'Ace' ? 500 : 250);
     }
-    this.hud.score(this.match, res.game ? this.match.currentServer : this.match.currentServer);
+    this.hud.score(this.match, this.match.currentServer);
+    this.boards();
     // the crowd
     const intensity = Math.min(1, 0.35 + this.rallyShots * 0.06 + (res.game ? 0.25 : 0) + (res.breakOfServe ? 0.2 : 0) + (res.set ? 0.3 : 0));
     this.audio.applause(intensity, 2.5 + intensity * 2.5);
@@ -772,6 +816,11 @@ export class Game {
 
   private pointOver(dt: number) {
     this.idlePlayers(dt);
+    if (!this.replayDone && this.stateT > 1.3) {
+      this.replayDone = true;
+      if (this.close && this.startHawkEye()) return;
+      if (!this.afterFault && this.highlight && (this.highlight.kind !== 'rally' || Math.random() < 0.6) && this.startReplay()) return;
+    }
     const wait = this.afterFault ? 1.3 : this.lastResult?.game ? 3.4 : 2.6;
     if (this.stateT < wait) return;
     if (this.match.winner !== null) {
@@ -786,6 +835,66 @@ export class Game {
       return;
     }
     this.setupPoint();
+  }
+
+  // ------------------------------------------------------------------------------------ replays
+  private replayPhase = 0;
+  private startReplay(): boolean {
+    const back = Math.min(this.replay.duration - 0.2, Math.max(3.2, this.clock - this.lastHitT + 2.4));
+    if (!this.replay.start(back, 0.2, 0.42)) return false;
+    this.state = 'replay';
+    this.stateT = 0;
+    const h = this.highlight!;
+    const hitter = this.players[h.hitter];
+    this.dir.subject.copy(hitter.pos);
+    this.dir.cut(h.kind === 'ace' ? 'replayBaseline' : Math.random() < 0.5 ? 'replaySide' : 'replayBaseline');
+    this.hud.call('Replay', '', 1.6);
+    this.hud.replayTag(true);
+    this.audio.crowdLevel(0.6);
+    return true;
+  }
+
+  private startHawkEye(): boolean {
+    const c = this.close!;
+    const path = this.replay.path(c.hitT, c.t + 0.02);
+    if (path.length < 4) return false;
+    // play the last metres of the flight into the bounce, slowly, from low beside the line
+    const back = this.clock - c.t + 0.7;
+    if (!this.replay.start(back, Math.max(0, this.clock - c.t - 0.25), 0.3)) return false;
+    this.state = 'hawkeye';
+    this.stateT = 0;
+    this.replayPhase = 0;
+    this.dir.subject.set(c.x, 0, c.z);
+    this.dir.cut('hawkeye');
+    this.hawk.show(path, c, c.inside, c.mm);
+    this.hud.replayTag(true);
+    return true;
+  }
+
+  private replayTick(dt: number) {
+    const b = this.ballView.mesh.position;
+    const playing = this.replay.step(dt);
+    // the camera follows the recorded ball
+    this.dir.update(dt, b, this.dir.subject, this.players[1].pos);
+    const dist = this.camera.position.distanceTo(this.state === 'hawkeye' ? this.dir.subject : b);
+    this.onDof?.(true, dist, this.state === 'hawkeye' ? 1.2 : 3.5);
+    this.world.ballPos.copy(b);
+    if (this.input.takePress()) this.replay.stop();
+    const hold = this.state === 'hawkeye' ? 2.2 : 0.4;
+    if (!playing) {
+      this.replayPhase += dt;
+      if (this.replayPhase > hold || !this.replay.playing && this.stateT > 12) this.endReplay();
+    } else this.replayPhase = 0;
+  }
+
+  private endReplay() {
+    this.onDof?.(false);
+    this.hawk.hide();
+    this.hud.replayTag(false);
+    // restore the live pose (the rig poses everyone again next frame)
+    this.state = 'pointOver';
+    this.stateT = 1.4;
+    this.dir.cut('broadcast');
   }
 
   private changeover(dt: number) {

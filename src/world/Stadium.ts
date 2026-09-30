@@ -65,12 +65,14 @@ export class Stadium {
     const v = this.venue;
     const ring = this.ring;
     const [cc, cn, cr] = await Promise.all([tex('concrete_c.jpg', true), tex('concrete_n.jpg', false), tex('concrete_r.jpg', false)]);
-    const concrete = new THREE.MeshStandardMaterial({
-      map: cc, normalMap: cn, roughnessMap: cr, color: lin(v.concrete), vertexColors: true, roughness: 1, normalScale: new THREE.Vector2(0.6, 0.6),
+    void cr;
+    // (Lambert: the stands are a lot of pixels; they don't need a specular lobe)
+    const concrete = new THREE.MeshLambertMaterial({
+      map: cc, normalMap: cn, color: lin(v.concrete), vertexColors: true, normalScale: new THREE.Vector2(0.6, 0.6),
     });
     concrete.map!.repeat.set(0.35, 0.35);
-    const paint = new THREE.MeshStandardMaterial({ color: lin(v.wall), roughness: 0.7, vertexColors: true });
-    const darkPaint = new THREE.MeshStandardMaterial({ color: new THREE.Color(v.wall).multiplyScalar(0.6), roughness: 0.75, vertexColors: true });
+    const paint = new THREE.MeshLambertMaterial({ color: lin(v.wall), vertexColors: true });
+    const darkPaint = new THREE.MeshLambertMaterial({ color: new THREE.Color(v.wall).multiplyScalar(0.6), vertexColors: true });
 
     // ---------------------------------------------------------------- courtside walls
     {
@@ -220,7 +222,7 @@ export class Stadium {
       this.group.add(rm);
       const under = new Soup();
       under.band(ring, innerD, () => yIn - 0.6, outerD, () => yOut, 0.75, 0.45, true, 1 / 3);
-      const underMat = new THREE.MeshStandardMaterial({ color: 0xcfd0cf, roughness: 0.7, metalness: 0.1, vertexColors: true, side: THREE.DoubleSide });
+      const underMat = new THREE.MeshLambertMaterial({ color: 0xcfd0cf, vertexColors: true, side: THREE.DoubleSide });
       const um = new THREE.Mesh(under.geometry(), underMat);
       um.castShadow = true;
       um.receiveShadow = true;
@@ -306,6 +308,8 @@ export class Stadium {
             const idx = ring.at(d, Ls, sA + gap * (j + 0.5), p, nr);
             const i0 = Math.floor(idx) % ring.count, i1 = (i0 + 1) % ring.count, t = idx - Math.floor(idx);
             const y = yOf(i0, r) * (1 - t) + yOf(i1, r) * t;
+            // TV camera bays behind each baseline
+            if (tier === 0 && Math.abs(p.x) < 3.1 && Math.abs(p.z) > FLOOR_HZ + 0.5 && r <= 15) continue;
             spots.push({ x: p.x, y, z: p.z, nx: nr.x, nz: nr.z, tier, row: r, cover: tier === 1 ? this.coverAt(d) : 0 });
           }
         }
@@ -315,8 +319,9 @@ export class Stadium {
     place(1, this.upper.rows, this.upper.d0, this.upper.D, (i, r) => this.upperY(i, r));
     this.seats.push(...spots);
     const geo = seatGeometry();
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0, color: 0xffffff });
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const inst = new THREE.InstancedMesh(geo, mat, spots.length);
+    inst.renderOrder = -1;
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color();
     const cA = lin(v.seat), cB = lin(v.seatAlt);
     spots.forEach((s, k) => {
@@ -338,7 +343,7 @@ export class Stadium {
       const suite = (m as THREE.MeshPhysicalMaterial).clearcoat > 0;
       m.emissiveIntensity = (suite ? (night ? 0.5 : 0.18) : 1.05) / exposure;
     }
-    for (const l of this.lamps) (l.material as THREE.MeshStandardMaterial).emissiveIntensity = night ? 60 / exposure : 0;
+    for (const l of this.lamps) (l.material as THREE.MeshStandardMaterial).emissiveIntensity = night ? 18 / exposure : 0;
   }
 
   update(t: number) {

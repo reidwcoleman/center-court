@@ -77,8 +77,6 @@ export class Renderer {
     this.composer.addPass(this.dofPass);
 
     this.exposure = new ExposureEffect();
-    const exposurePass = new EffectPass(camera, this.exposure);
-    this.composer.addPass(exposurePass);
     this.bloom = new BloomEffect({ mipmapBlur: true, luminanceThreshold: 1.1, luminanceSmoothing: 0.35, intensity: 0.55, radius: 0.72 });
     this.tone = new ToneMappingEffect({ mode: ToneMappingMode.NEUTRAL });
     this.grade = new BrightnessContrastEffect({ brightness: 0.0, contrast: 0.06 });
@@ -87,11 +85,10 @@ export class Renderer {
     this.ca = new ChromaticAberrationEffect({ offset: new THREE.Vector2(0.00045, 0.00025), radialModulation: true, modulationOffset: 0.35 });
     this.grain = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: false });
     this.grain.blendMode.opacity.value = 0.045;
-    const smaa = new SMAAEffect({ preset: SMAAPreset.HIGH });
-    this.mainPass = new EffectPass(camera, this.bloom, this.tone, this.grade, this.sat, this.vignette, this.grain, smaa);
+    const smaa = new SMAAEffect({ preset: SMAAPreset.MEDIUM });
+    // one pass: exposure first (bloom reads the unexposed input, so its threshold and strength follow the exposure)
+    this.mainPass = new EffectPass(camera, this.exposure, this.bloom, this.tone, this.grade, this.sat, this.vignette, this.grain, smaa);
     this.composer.addPass(this.mainPass);
-    const caPass = new EffectPass(camera, this.ca);
-    this.composer.addPass(caPass);
 
     this.resize();
     addEventListener('resize', () => this.resize());
@@ -112,19 +109,30 @@ export class Renderer {
     this.dof.bokehScale = bokeh;
   }
 
+  /** scene-referred exposure; bloom's threshold and strength are kept relative to it */
+  setExposure(x: number) {
+    if (Math.abs(this.exposure.value - x) < 1e-5) return;
+    this.exposure.value = x;
+    this.bloom.luminanceMaterial.threshold = 1.1 / x;
+    this.bloom.intensity = 0.55 * x;
+  }
+
+  /** a pixel budget per quality level (the M1 fills ~2 MP of this scene at 60 fps) */
+  private budget = 2.0e6;
   setQuality(q: Quality) {
     this.quality = q;
-    const dpr = Math.min(devicePixelRatio, 2);
-    this.maxScale = { low: 0.6, medium: 0.8, high: 1.0, ultra: 1.0 }[q] * (dpr > 1.5 ? 0.85 : 1);
-    this.minScale = { low: 0.45, medium: 0.55, high: 0.62, ultra: 0.75 }[q];
-    this.scale = this.maxScale;
+    this.budget = { low: 0.9e6, medium: 1.4e6, high: 2.0e6, ultra: 3.4e6 }[q];
+    this.maxScale = 1;
+    this.minScale = { low: 0.7, medium: 0.68, high: 0.66, ultra: 0.7 }[q];
+    this.scale = 1;
     this.resize();
   }
 
   resize() {
     const w = innerWidth, h = innerHeight;
     const dpr = Math.min(devicePixelRatio, 2);
-    this.gl.setPixelRatio(dpr * this.scale);
+    const ratio = Math.min(dpr, Math.sqrt(this.budget / (w * h)));
+    this.gl.setPixelRatio(ratio * this.scale);
     this.gl.setSize(w, h, false);
     this.canvas.style.width = w + 'px';
     this.canvas.style.height = h + 'px';

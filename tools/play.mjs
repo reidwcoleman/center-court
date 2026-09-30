@@ -16,9 +16,19 @@ if (opt("human", "")) await page.evaluate((t) => window.__autoHuman(t), opt("hum
 const frames = Math.round(secs * 60);
 const every = Math.floor(frames / Math.max(1, nShots));
 const t0 = Date.now();
-for (let f = 0, k = 0; f < frames; f += 60) {
-  await page.evaluate(() => window.__pump(60));
-  if (nShots && f % every < 60 && k < nShots) {
+let rk = 0;
+const want = opt('capture', '');
+for (let f = 0, k = 0; f < frames; f += 20) {
+  await page.evaluate(() => window.__pump(20));
+  if (want) {
+    const st = await page.evaluate(() => [window.__cc.game.state, window.__cc.game.stateT]);
+    if (want.split(',').includes(st[0]) && rk < nShots) {
+      // a frame a second into it
+      if (st[1] > 0.6 && st[1] < 0.95) { await page.screenshot({ path: `shots/cap_${rk}_${st[0]}.png` }); rk++; }
+    }
+    continue;
+  }
+  if (nShots && f % every < 20 && k < nShots) {
     await page.screenshot({ path: `shots/play_${k}.png` });
     k++;
   }

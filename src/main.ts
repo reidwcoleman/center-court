@@ -55,6 +55,7 @@ async function boot() {
   crowd.populate(world.stadium.seats);
   world.scene.add(crowd.mesh);
   game = new Game(world, camera, input, hud, audio, crowd);
+  game.onDof = (on, focus, range) => renderer.setDof(on, focus, (range ?? 3) * 1.6, 1.8);
   game.dir.cut('intro');
   world.finalize();
   menu.setStatus('');
@@ -130,7 +131,7 @@ function step(dt: number) {
   }
   crowd?.update(gdt, camera);
   world.marks.flush();
-  renderer.exposure.value = world.sky.exposure * exMul;
+  renderer.setExposure(world.sky.exposure * exMul);
   renderer.render(dt);
   renderer.adapt(dt, time);
 }

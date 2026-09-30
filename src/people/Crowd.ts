@@ -29,7 +29,7 @@ export class Crowd {
   private normal!: THREE.WebGLRenderTarget;
   private geo!: THREE.InstancedBufferGeometry;
   private mode!: THREE.InstancedBufferAttribute;
-  private material!: THREE.MeshStandardMaterial;
+  private material!: THREE.MeshLambertMaterial;
   readonly uniforms = {
     uColorAtlas: { value: null as THREE.Texture | null },
     uNormalAtlas: { value: null as THREE.Texture | null },
@@ -208,6 +208,8 @@ export class Crowd {
     this.mesh.material = this.material;
     this.mesh.receiveShadow = true;
     this.mesh.castShadow = false;
+    // drawn first: its depth hides the seats and steps behind the people
+    this.mesh.renderOrder = -2;
   }
 
   /** crowd reaction: 0 quiet (seated), 1 applause, 2 standing ovation — applied to a random share */
@@ -248,8 +250,8 @@ function normalMaskMaterial(map: THREE.Texture, normalMap: THREE.Texture, mask: 
   return m;
 }
 
-function crowdMaterial(u: Crowd['uniforms']): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0, alphaTest: 0.5, side: THREE.DoubleSide });
+function crowdMaterial(u: Crowd['uniforms']): THREE.MeshLambertMaterial {
+  const m = new THREE.MeshLambertMaterial({ alphaTest: 0.5, side: THREE.DoubleSide });
   // (a stand-in map so three compiles the uv + map paths; the atlas is sampled by hand)
   m.map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
   m.map.needsUpdate = true;

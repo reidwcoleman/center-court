@@ -107,7 +107,9 @@ export class CameraDirector {
         break;
       }
       case 'replaySide': {
-        wantPos.set(10.5, 1.2, ball.z * 0.55);
+        // low on the benches' side, clear of the umpire's chair
+        const z = THREE.MathUtils.clamp(ball.z * 0.55, -9, 9);
+        wantPos.set(-9.9, 1.35, Math.abs(z) < 2.8 ? Math.sign(z || 1) * 2.8 : z);
         wantLook.set(ball.x * 0.4, 0.9, ball.z * 0.8);
         fov = 40;
         rate = 4;

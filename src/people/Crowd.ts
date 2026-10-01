@@ -338,6 +338,8 @@ vec4 gNrm;`)
       diffuseColor.a = alb.a;`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       // the flash: a hot point at the upper body
+      // a warm bounce-light fill so the shaded stands read as people, not blue silhouettes
+      totalEmissiveRadiance += diffuseColor.rgb * vec3( 1.0, 0.93, 0.84 ) * 0.2;
       totalEmissiveRadiance += vec3( 1.0, 0.97, 0.92 ) * vFlash * 60.0 * smoothstep( 0.35, 0.0, distance( vMapUv, vec2( 0.5, 0.62 ) ) );`)
       .replace('#include <normal_fragment_maps>', /* glsl */ `
       {
@@ -348,9 +350,10 @@ vec4 gNrm;`)
         vec3 B = normalize( ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );
         vec3 T = normalize( cross( B, N ) );
         B = cross( N, T );
-        normal = normalize( T * mapN.x + B * mapN.y + N * max( mapN.z, 0.05 ) );
+        // softened: the baked normals only sculpt the figure, they don't carve white highlights
+        normal = normalize( mix( N, normalize( T * mapN.x + B * mapN.y + N * max( mapN.z, 0.05 ) ), 0.42 ) );
       }`);
   };
-  m.customProgramCacheKey = () => 'cc-crowd-v1';
+  m.customProgramCacheKey = () => 'cc-crowd-v2';
   return m;
 }

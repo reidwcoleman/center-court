@@ -2,7 +2,7 @@ import { BALL_R, BALL_M, netTop, POST_X, SURFACE_PHYS, type Surface } from './di
 
 /**
  * Tennis-ball flight, independent of the renderer (tools/simtest.ts runs it in node):
- *  - gravity, quadratic drag (Cd 0.55)
+ *  - gravity, quadratic drag (Cd 0.42, a touch lighter than a real ball so rallies keep their pace)
  *  - Magnus lift from spin, C_L = 1 / (2 + v / (r·ω))  (Watts & Ferrer)
  *  - spin decay (τ ≈ 6 s)
  *  - bounce: vertical restitution per surface; tangential friction impulse that either slides
@@ -16,7 +16,8 @@ export const v3 = (x = 0, y = 0, z = 0): V3 => ({ x, y, z });
 
 const RHO = 1.21;
 const A = Math.PI * BALL_R * BALL_R;
-const KD = (0.5 * RHO * 0.55 * A) / BALL_M; // drag: a = −KD |v| v
+export const CD = 0.42;
+const KD = (0.5 * RHO * CD * A) / BALL_M; // drag: a = −KD |v| v
 const KL = (0.5 * RHO * A) / BALL_M; // lift: a = KL · C_L · |v|² (ŵ×v̂)
 const G = 9.81;
 const SPIN_TAU = 6;

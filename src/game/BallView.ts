@@ -13,6 +13,11 @@ export class BallView {
   private q = new THREE.Quaternion();
   private squash = 0;
   private prev = new THREE.Vector3();
+  /** the ball is drawn larger than life so it reads from the broadcast camera */
+  static readonly VIS = 1.7;
+  readonly shadow: THREE.Mesh;
+  readonly marker: THREE.Mesh;
+  private markerT = 0;
 
   constructor() {
     const mat = new THREE.MeshPhysicalMaterial({
@@ -23,7 +28,7 @@ export class BallView {
       sheenRoughness: 0.35,
       sheenColor: new THREE.Color(0.9, 1.0, 0.45),
     });
-    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 20), mat);
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R * BallView.VIS, 32, 20), mat);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     this.mesh.name = 'ball';
@@ -31,6 +36,51 @@ export class BallView {
     this.streak = new THREE.Mesh(new THREE.CylinderGeometry(BALL_R * 0.85, BALL_R * 0.85, 1, 12, 1, true).rotateX(Math.PI / 2), smat);
     this.streak.visible = false;
     this.streak.renderOrder = 3;
+    // a soft contact shadow straight under the ball (depth cue), and the landing marker
+    const blob = (inner: number, outer: number, color: string, op: number) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d')!;
+      const gr = g.createRadialGradient(64, 64, inner * 64, 64, 64, outer * 64);
+      gr.addColorStop(0, color);
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 128, 128);
+      const t = new THREE.CanvasTexture(c);
+      return new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: op, depthWrite: false, toneMapped: false });
+    };
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), blob(0.0, 1.0, 'rgba(0,0,0,0.9)', 0.55));
+    this.shadow.renderOrder = 2;
+    this.shadow.visible = false;
+    const ring = document.createElement('canvas');
+    ring.width = ring.height = 256;
+    const rg = ring.getContext('2d')!;
+    rg.strokeStyle = 'rgba(255,255,255,1)';
+    rg.lineWidth = 14;
+    rg.beginPath();
+    rg.arc(128, 128, 100, 0, Math.PI * 2);
+    rg.stroke();
+    rg.fillStyle = 'rgba(255,255,255,0.22)';
+    rg.beginPath();
+    rg.arc(128, 128, 94, 0, Math.PI * 2);
+    rg.fill();
+    const rt = new THREE.CanvasTexture(ring);
+    this.marker = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: rt, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false, color: new THREE.Color(1.0, 0.95, 0.5) }));
+    this.marker.renderOrder = 2;
+    this.marker.visible = false;
+  }
+
+  /** the landing marker: where the ball will bounce on the human's side */
+  setMarker(at: { x: number; z: number } | null, dt: number) {
+    if (!at) {
+      this.marker.visible = false;
+      return;
+    }
+    this.markerT += dt;
+    this.marker.visible = true;
+    this.marker.position.set(at.x, 0.03, at.z);
+    const k = 0.62 + Math.sin(this.markerT * 9) * 0.05;
+    this.marker.scale.set(k, 1, k);
   }
 
   bounce() {
@@ -39,6 +89,13 @@ export class BallView {
 
   update(p: V3, w: V3, v: V3, dt: number, cameraPos: THREE.Vector3) {
     this.mesh.position.set(p.x, p.y, p.z);
+    const live = p.y > BALL_R * 1.4 || Math.hypot(v.x, v.z) > 1;
+    this.shadow.visible = live && this.mesh.visible && p.y < 14;
+    const hgt = Math.max(0, p.y - BALL_R);
+    this.shadow.position.set(p.x, 0.02, p.z);
+    const sr = 0.2 + hgt * 0.05;
+    this.shadow.scale.set(sr, 1, sr);
+    (this.shadow.material as THREE.MeshBasicMaterial).opacity = Math.max(0.12, 0.6 - hgt * 0.07);
     const ws = Math.hypot(w.x, w.y, w.z);
     if (ws > 0.01) {
       this.q.setFromAxisAngle(new THREE.Vector3(w.x / ws, w.y / ws, w.z / ws), ws * dt);

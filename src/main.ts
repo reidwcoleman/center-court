@@ -41,7 +41,7 @@ const choice: MenuChoice = {
   level: params.get('level') ?? 'pro',
   sets: params.get('sets') ?? '1',
   player: params.get('player') ?? '0',
-  assist: params.get('assist') ?? 'partial',
+  assist: params.get('assist') ?? 'full',
 };
 const menu = new Menu(ui, choice);
 menu.busy(true);
@@ -146,7 +146,7 @@ function start() {
 
 // ---- debug / headless hooks
 const W = window as unknown as Record<string, unknown>;
-W.__cc = { world, renderer, camera, THREE, get game() { return game; }, get crowd() { return crowd; } };
+W.__cc = { world, renderer, camera, THREE, input, get game() { return game; }, get crowd() { return crowd; } };
 W.__pump = (n: number, dt = 1 / 60) => {
   cancelAnimationFrame(raf);
   for (let i = 0; i < n; i++) step(dt);
@@ -170,7 +170,7 @@ W.__autoHuman = (type = 'topspin') => {
       const incoming = g.state === 'rally' || g.state === 'serveFlight';
       const me = g.human;
       if (g.state === 'preServe' && g['serverIdx' as keyof Game] === 0 && g.stateT > 1.2) input['presses' as keyof Input] && (input as unknown as { presses: string[] }).presses.push('flat');
-      if (incoming && me.plan && !me.shot && me.plan.tContact - g.clock < 1.1) (input as unknown as { presses: string[] }).presses.push(type);
+      if (type !== 'none' && incoming && me.plan && !me.shot && me.plan.tContact - g.clock < 1.1) (input as unknown as { presses: string[] }).presses.push(type);
     }
   };
   setInterval(tick, 100);

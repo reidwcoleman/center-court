@@ -33,7 +33,7 @@ export type Surface = 'hard' | 'clay' | 'grass';
  * and how much horizontal pace the surface itself takes (clay bites, grass skids)
  */
 export const SURFACE_PHYS: Record<Surface, { e: number; mu: number; keep: number; name: string }> = {
-  hard: { e: 0.76, mu: 0.62, keep: 0.97, name: 'Hard' },
-  clay: { e: 0.81, mu: 0.85, keep: 0.88, name: 'Clay' },
-  grass: { e: 0.68, mu: 0.42, keep: 1.0, name: 'Grass' },
+  hard: { e: 0.78, mu: 0.5, keep: 1.0, name: 'Hard' },
+  clay: { e: 0.82, mu: 0.72, keep: 0.94, name: 'Clay' },
+  grass: { e: 0.7, mu: 0.36, keep: 1.0, name: 'Grass' },
 };

@@ -68,9 +68,10 @@ export class CameraDirector {
           wantLook.set(fx * 0.55, 0.9, s * -3.5);
           fov = 42;
         } else {
-          wantPos.set(fx * 0.32, 8.4, s * (26.8 - push * 0.55));
-          wantLook.set(fx * 0.5, 0.0, s * 0.6);
-          fov = 38;
+          // a game camera: low and close behind the baseline so the players are big and the ball is readable
+          wantPos.set(fx * 0.34, 5.6, s * (21.6 - push * 0.5));
+          wantLook.set(fx * 0.5, 0.35, s * -3.2);
+          fov = 40;
         }
         rate = 2.6;
         break;

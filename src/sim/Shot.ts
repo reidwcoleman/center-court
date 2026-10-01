@@ -1,5 +1,5 @@
 import { BALL_R, netTop, type Surface } from './dims.ts';
-import { spinFor, type V3, v3 } from './Ball.ts';
+import { spinFor, CD, type V3, v3 } from './Ball.ts';
 
 /**
  * The shot solver: which launch velocity lands a ball struck at p0 with this pace and spin
@@ -31,7 +31,7 @@ export interface ShotSolution {
 }
 
 const RHO = 1.21, A = Math.PI * BALL_R * BALL_R, M = 0.0577;
-const KD = (0.5 * RHO * 0.55 * A) / M, KL = (0.5 * RHO * A) / M;
+const KD = (0.5 * RHO * CD * A) / M, KL = (0.5 * RHO * A) / M;
 
 /** fly without the net until the first ground contact: landing point, and the height when crossing z = 0 */
 export function flyToGround(p0: V3, v0: V3, w0: V3, dt = 1 / 240, tMax = 5): { x: number; z: number; t: number; netY: number; netX: number } {

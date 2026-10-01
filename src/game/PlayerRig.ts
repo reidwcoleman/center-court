@@ -318,7 +318,10 @@ export class PlayerRig {
       this.sprintAction = null;
     }
     // ---------------- locomotion mode: run clips vs the stance
-    const wantRun = !this.stroke && speed > 2.7 ? 1 : 0;
+    // keep running through the approach of a stroke (and the recovery after it): the planted-feet
+    // stance only takes over once the player has arrived, so there are no stretched sliding strides
+    const strokeFree = !this.stroke || this.strokeT < CONTACT - 0.1 || this.strokeT > 0.78;
+    const wantRun = strokeFree && speed > (this.runW > 0.5 ? 1.9 : 2.7) ? 1 : 0;
     this.runW += (wantRun - this.runW) * Math.min(1, dt * 7);
     // pick the clip by speed; backpedal plays the walk backwards
     const facing = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));

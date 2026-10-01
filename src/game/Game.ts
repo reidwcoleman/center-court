@@ -82,6 +82,7 @@ export class Game {
   private highlight: { kind: 'rally' | 'ace' | 'winner'; hitter: 0 | 1 } | null = null;
   private close: { x: number; z: number; inside: boolean; mm: number; t: number; hitT: number } | null = null;
   private lastHitT = 0;
+  private timedPress = -9;
   private lastAttack = false;
   /** the rally is over (a fault, an out ball, a point pending): nobody plays the ball */
   private dead = false;
@@ -98,8 +99,8 @@ export class Game {
     this.dir = new CameraDirector(camera);
     this.hawk = new HawkEye(hud.root);
     world.scene.add(this.hawk.group);
-    world.scene.add(this.ballView.mesh, this.ballView.streak);
-    world.dynamic.push(this.ballView.mesh, this.ballView.streak);
+    world.scene.add(this.ballView.mesh, this.ballView.streak, this.ballView.shadow, this.ballView.marker);
+    world.dynamic.push(this.ballView.mesh, this.ballView.streak, this.ballView.shadow, this.ballView.marker);
     this.ball.surface = world.venue.surface;
   }
 
@@ -111,7 +112,7 @@ export class Game {
       const rig = new PlayerRig(h, r.racket);
       this.world.scene.add(h.root);
       this.world.dynamic.push(h.root);
-      const p = new Player(i, r.name, rig, human, human ? { speed: 6.0, accel: 13, power: 0.9, accuracy: 0.85, spin: 0.85, reaction: 0.1 } : AI_LEVELS[cfg.level].skill);
+      const p = new Player(i, r.name, rig, human, human ? { speed: 7.0, accel: 26, power: 0.95, accuracy: 0.9, spin: 0.85, reaction: 0.05 } : AI_LEVELS[cfg.level].skill);
       return p;
     };
     const a = ROSTER[cfg.human], b = ROSTER[cfg.cpu];
@@ -263,6 +264,7 @@ export class Game {
       this.ball.w = v3();
     }
     this.ballView.update(this.ball.p, this.ball.w, this.ball.v, dt, this.camera.position);
+    this.ballView.setMarker(this.landingSpot(), dt);
     this.world.ballPos.copy(look);
     if (this.state === 'toss' || this.state === 'serveFlight' || this.state === 'rally' || (this.state === 'pointOver' && this.stateT < 1.2)) this.replay.record(dt, this.clock);
     // camera
@@ -273,6 +275,17 @@ export class Game {
     if (this.human.human && hs && !hs.released && (this.state === 'rally' || this.state === 'serveFlight' || this.state === 'toss')) this.hud.power(this.chargeOf(hs));
     else this.hud.power(null);
     this.hud.update(dt);
+  }
+
+  /** where the ball will land on the human's side (until it does) — shown as a ring on the court */
+  private landingSpot(): { x: number; z: number } | null {
+    if (this.state !== 'rally' && this.state !== 'serveFlight') return null;
+    if (this.dead || this.pendingPoint || !this.pred || this.lastHitter === null || this.lastHitter === 0 || this.cfg.demo) return null;
+    const h = this.human;
+    if (this.bouncesAfterHit > 0 && this.bounceSide === h.side) return null;
+    if (this.ball.v.z * h.side < 0) return null; // heading away from the human
+    const b = this.pred.events.find((e) => e.kind === 'bounce' && e.z * h.side > 0) as Extract<BallEvent, { kind: 'bounce' }> | undefined;
+    return b ? { x: b.x, z: b.z } : null;
   }
 
   private dribbleY(handY: number): number {
@@ -385,11 +398,11 @@ export class Game {
     const hand = 1; // right-handed
     let spec: ShotSpec;
     const t = shot.type;
-    if (t === 'topspin' || t === 'lob') spec = { speed: 30 + 13 * power * S.skill.power, rpm: 2800, side: 900 * hand, clear: 0.3 };
-    else if (t === 'slice' || t === 'drop') spec = { speed: 35 + 15 * power * S.skill.power, rpm: 800, side: -2300 * hand, clear: 0.1 };
-    else spec = { speed: 40 + 18 * power * S.skill.power, rpm: 450, clear: 0.04 };
+    if (t === 'topspin' || t === 'lob') spec = { speed: 34 + 14 * power * S.skill.power, rpm: 2800, side: 900 * hand, clear: 0.3 };
+    else if (t === 'slice' || t === 'drop') spec = { speed: 38 + 16 * power * S.skill.power, rpm: 800, side: -2300 * hand, clear: 0.1 };
+    else spec = { speed: 42 + 20 * power * S.skill.power, rpm: 450, clear: 0.04 };
     // big first serves are committed: the pace stays and they can find the net
-    spec.commit = power > 0.82 && Math.random() < 0.5;
+    spec.commit = !S.human ? power > 0.82 && Math.random() < 0.5 : power > 0.96 && !second && Math.random() < 0.2;
     const sol = solveShot(contact, target, spec, this.world.venue.surface);
     this.ball.set(contact, sol.v, sol.w);
     this.ball.bounces = 0;
@@ -491,24 +504,35 @@ export class Game {
     const st = this.input.stick();
     // screen-relative: the camera sits behind the human's end
     const s = p.side;
-    const want = new THREE.Vector3(st.x * s, 0, -st.y * s).multiplyScalar(p.skill.speed * (this.input.sprint ? 1 : 0.92));
-    // shot buttons arm the next stroke; release freezes the charge
+    const want = new THREE.Vector3(st.x * s, 0, -st.y * s).multiplyScalar(p.skill.speed * (this.input.sprint ? 1 : 0.94));
+    const assist = this.cfg.assist;
+    const easy = assist === 'full';
     const press = this.input.takePress();
     if (press) {
-      p.shot = { type: press, aimX: 0, aimD: 0, power: 0, pressT: this.clock, released: false };
+      const pl = p.plan;
+      if (pl && pl.swung && receiving) {
+        // pressed after the swing began: a timed press, the shot gets everything
+        if (p.shot) { p.shot.power = Math.max(p.shot.power, 0.95); p.shot.released = true; }
+        this.timedPress = this.clock;
+      } else {
+        p.shot = { type: press, aimX: 0, aimD: 0, power: 0, pressT: this.clock, released: false };
+      }
       this.hud.hideHint();
     }
     if (p.shot && !p.shot.released && !this.input.isHeld(p.shot.type)) {
       p.shot.released = true;
       p.shot.power = this.chargeOf(p.shot);
     }
-    // positioning assist: with a shot armed the player is drawn to the ideal contact spot
-    const assist = this.cfg.assist;
-    if (receiving && p.plan && (p.shot || assist === 'full')) {
+    const idle = Math.hypot(st.x, st.y) < 0.1;
+    if (receiving && p.plan && (p.shot || easy)) {
+      // run to the ball: the player is drawn to the ideal contact spot
       const auto = p.seek(p.plan.body, 1);
-      const idle = Math.hypot(st.x, st.y) < 0.1;
-      const k = assist === 'off' ? 0 : idle ? (assist === 'full' ? 1 : 0.85) : assist === 'full' ? 0.75 : 0.45;
+      const k = assist === 'off' ? 0 : idle ? 1 : easy ? 0.8 : 0.45;
       want.lerp(auto, k);
+    } else if (easy && idle && this.state === 'rally' && p.moveTarget) {
+      // between shots the player drifts back to a ready position on their own
+      const back = p.seek(p.moveTarget, 0.8);
+      want.lerp(back, 0.9);
     }
     p.drive(dt, want);
   }
@@ -543,6 +567,13 @@ export class Game {
     const plan = p.plan!;
     const tTo = plan.tContact - this.clock;
     const lead = plan.volley ? 0.42 : plan.smash ? 0.7 : 0.72;
+    const easy = this.cfg.assist === 'full';
+    if (p.human && easy && !p.shot && !plan.swung && tTo <= lead && tTo > 0.06) {
+      // easy mode: no button pressed in time, the player swings a steady topspin (a slice when stretched)
+      const type: ShotType = plan.late > 0.06 ? 'slice' : 'topspin';
+      p.shot = { type, aimX: 0, aimD: 0, power: 0.58, pressT: this.clock - 1, released: true };
+      this.hud.hideHint();
+    }
     if (!plan.swung && tTo <= lead && tTo > 0.06 && (!p.human || p.shot)) {
       plan.swung = true;
       const aim = p.fwd;
@@ -559,13 +590,16 @@ export class Game {
     const dy = Math.abs(b.y - plan.ball.y);
     p.plan = null;
     if (!plan.swung || (p.human && !p.shot)) { this.say(`no swing ${this.names[p.index]}`); return; } // no swing: the ball goes by
-    if (dh > 1.15 || dy > 0.9 || b.y > 3.0 || b.y < 0.08) {
+    const reach = p.human ? 1.7 : 1.15, reachY = p.human ? 1.3 : 0.9;
+    if (dh > reach || dy > reachY || b.y > 3.2 || b.y < 0.05) {
       this.say(`miss ${this.names[p.index]} dh=${dh.toFixed(2)} dy=${dy.toFixed(2)} ballY=${b.y.toFixed(2)} late=${plan.late.toFixed(2)}`);
       // a whiff, or the frame
       if (dh < 1.45) this.audio.hit(0.3, 'frame', this.pan(b), p.pos.distanceTo(this.camera.position));
       return;
     }
-    const quality = THREE.MathUtils.clamp(1 - Math.max(0, dh - 0.3) / 0.85 - dy * 0.3, 0.1, 1);
+    const quality = p.human
+      ? THREE.MathUtils.clamp(1 - Math.max(0, dh - 0.45) / 1.5 - dy * 0.15, 0.35, 1)
+      : THREE.MathUtils.clamp(1 - Math.max(0, dh - 0.3) / 0.85 - dy * 0.3, 0.1, 1);
     this.strike(p, ballV, quality, plan);
   }
 
@@ -579,9 +613,12 @@ export class Game {
     let power: number, aimX: number, aimD: number;
     if (p.human) {
       power = shot.released ? shot.power : this.chargeOf(shot);
-      // a late press is a rushed swing
-      const prep = this.clock - shot.pressT;
-      if (prep < 0.25) quality *= 0.6 + prep * 1.6;
+      // pressing right at the ball (a timed press) is a clean, full swing
+      if (this.clock - this.timedPress < 0.5) {
+        quality = Math.max(quality, 0.9);
+        power = Math.max(power, 0.95);
+      }
+      quality = 0.5 + 0.5 * quality;
       const st = this.input.stick();
       aimX = st.x;
       aimD = st.y;
@@ -622,22 +659,25 @@ export class Game {
     if (forced === 'wide') tx = Math.sign(tx || (Math.random() - 0.5)) * (HSW + 0.25 + Math.random() * 0.9);
     if (forced === 'net') depth = 0.6 + Math.random() * 0.8;
     const stretched = plan.late > -0.12 ? 0.35 : 0;
-    const sigma = (0.34 + (1 - quality) * 1.9 + power * power * 0.75 + (incoming / 40) * 0.5 + stretched) * (1.4 - skill.accuracy);
-    const target = { x: THREE.MathUtils.clamp(tx * s, -5.4, 5.4) + gauss() * sigma, z: -s * depth + gauss() * sigma * 1.2 };
+    let sigma = (0.34 + (1 - quality) * 1.9 + power * power * 0.75 + (incoming / 40) * 0.5 + stretched) * (1.4 - skill.accuracy);
+    // the human's shots are steered by the solver: they land where aimed, give or take a little
+    if (p.human) sigma *= 0.42;
+    const lim = p.human ? HSW - 0.45 : 5.4;
+    const target = { x: THREE.MathUtils.clamp(tx * s, -lim, lim) + gauss() * sigma, z: -s * depth + gauss() * sigma * 1.2 };
     const pw = power * skill.power * (0.55 + 0.45 * quality);
     let spec: ShotSpec;
     const isVolley = plan.volley;
     switch (type) {
-      case 'flat': spec = { speed: 28 + 17 * pw, rpm: 800, clear: 0.12 }; break;
-      case 'slice': spec = { speed: 20 + 11 * pw, rpm: -2500 * (0.7 + 0.3 * skill.spin), clear: 0.18 }; break;
+      case 'flat': spec = { speed: 30 + 18 * pw, rpm: 800, clear: 0.12 }; break;
+      case 'slice': spec = { speed: 21 + 11 * pw, rpm: -2500 * (0.7 + 0.3 * skill.spin), clear: 0.18 }; break;
       case 'lob': spec = { speed: 17 + 6 * pw, rpm: 1500, arc: 'high', clear: 1.5 }; break;
       case 'drop': spec = { speed: 9 + 4 * pw, rpm: -2400, clear: 0.12 }; break;
-      default: spec = { speed: 24 + 14 * pw, rpm: 2000 + 1200 * pw * skill.spin, clear: 0.35 };
+      default: spec = { speed: 26 + 15 * pw, rpm: 2000 + 1200 * pw * skill.spin, clear: 0.35 };
     }
     if (isVolley && type !== 'drop') spec = { speed: 18 + 12 * pw, rpm: -1200, clear: 0.12 };
     if (plan.smash) spec = { speed: 34 + 16 * pw, rpm: 300, clear: 0.2 };
     // a poor contact can't be steered: commit (the pace and angle stay, errors happen)
-    spec.commit = (quality < 0.45 && Math.random() < 0.6) || forced !== null;
+    spec.commit = (!p.human && quality < 0.45 && Math.random() < 0.6) || forced !== null;
     if (forced === 'net') spec.clear = -0.25;
     const sol = solveShot({ x: contact.x, y: contact.y, z: contact.z }, target, spec, this.world.venue.surface);
     this.ball.set({ x: contact.x, y: contact.y, z: contact.z }, sol.v, sol.w);

@@ -32,7 +32,7 @@ export class HUD {
     this.meterFill = el('div', 'meter-fill');
     this.meter.appendChild(this.meterFill);
     this.hint = el('div', 'hint');
-    this.hint.innerHTML = `<b>WASD</b> move · <b>J</b> topspin · <b>K</b> flat · <b>L</b> slice · <b>I</b> lob · <b>U</b> drop · hold to power up · aim with the direction you hold at contact · <b>C</b> camera · <b>Esc</b> pause`;
+    this.hint.innerHTML = `<b>Arrows / WASD</b> aim and move · <b>Space</b> swing (hold for power, tap right at the ball for a big hit) · <b>K</b> flat · <b>L</b> slice · <b>I</b> lob · <b>U</b> drop · <b>C</b> camera · <b>Esc</b> pause`;
     this.tag = el('div', 'rtag', '<span class="dot"></span>REPLAY');
     this.root.append(this.bug, this.banner, this.chip, this.meter, this.hint, this.tag);
   }

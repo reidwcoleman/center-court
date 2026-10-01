@@ -30,7 +30,7 @@ export class Menu {
     panel.append(
       el('div', 'kicker', 'CENTER COURT'),
       el('h1', '', 'Take the<br>court.'),
-      el('p', 'lede', 'A full match under the lights of a sold-out arena. Real ball physics, motion-captured players, every stroke yours to time.'),
+      el('p', 'lede', 'Steer with the arrows or WASD and tap Space to swing. The player runs to the ball for you, so all you do is aim and time it.'),
     );
     const field = (key: keyof MenuChoice, label: string, opts: Opt[]) => {
       const f = el('div', 'field');
@@ -53,7 +53,7 @@ export class Menu {
     field('player', 'You play as', ROSTER.map((r, i) => [String(i), r.name]));
     field('level', 'Opponent', [['rookie', 'Rookie'], ['club', 'Club'], ['pro', 'Pro'], ['legend', 'Legend']]);
     field('sets', 'Match', [['1', 'One set'], ['3', 'Best of three']]);
-    field('assist', 'Movement assist', [['full', 'Full'], ['partial', 'Partial'], ['off', 'Off']]);
+    field('assist', 'Controls', [['full', 'Easy · auto-run + auto-swing'], ['partial', 'Standard'], ['off', 'Pro']]);
     this.playBtn = el('button', 'play', 'Play match') as HTMLButtonElement;
     this.playBtn.onclick = () => this.onPlay?.(this.choice);
     this.status = el('div', 'loading');

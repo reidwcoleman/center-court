@@ -77,6 +77,7 @@ async function play(c: MenuChoice, demo = false) {
   world.sky.captureEnv(world.dynamic);
   menu.hide();
   hud.show(true);
+  if (demo) hud.hideHint();
   game.begin();
   game.onMatchOver = (m) => {
     setTimeout(() => {

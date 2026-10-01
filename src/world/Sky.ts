@@ -242,8 +242,38 @@ export class Sky {
     hide.forEach((o, i) => (o.visible = was[i]));
   }
 
+  /**
+   * the captured environment is mostly floor and seats: their colour would tint everyone
+   * (green on grass, orange on clay). Re-render the cube through a partial desaturation.
+   */
+  private desatRT: THREE.WebGLCubeRenderTarget | null = null;
+  private desatScene: THREE.Scene | null = null;
+  private desatCam: THREE.CubeCamera | null = null;
+  envSaturation = 0.55;
+  private desaturated(): THREE.CubeTexture {
+    if (!this.desatRT) {
+      this.desatRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: false });
+      this.desatCam = new THREE.CubeCamera(0.1, 10, this.desatRT);
+      this.desatScene = new THREE.Scene();
+      const m = new THREE.ShaderMaterial({
+        uniforms: { src: { value: null }, sat: { value: this.envSaturation } },
+        vertexShader: 'varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `uniform samplerCube src; uniform float sat; varying vec3 vDir;
+          void main(){ vec3 c = textureCube( src, normalize( vDir ) ).rgb; float l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) ); gl_FragColor = vec4( mix( vec3( l ), c, sat ), 1.0 ); }`,
+        side: THREE.BackSide,
+        depthWrite: false,
+      });
+      this.desatScene.add(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), m));
+    }
+    const m = (this.desatScene!.children[0] as THREE.Mesh).material as THREE.ShaderMaterial;
+    m.uniforms.src.value = this.cubeRT.texture;
+    m.uniforms.sat.value = this.envSaturation;
+    this.desatCam!.update(this.gl, this.desatScene!);
+    return this.desatRT.texture;
+  }
+
   private setEnvFromCube() {
-    const rt = this.pmrem.fromCubemap(this.cubeRT.texture);
+    const rt = this.pmrem.fromCubemap(this.desaturated());
     this.envRT?.dispose();
     this.envRT = rt;
     this.scene.environment = rt.texture;

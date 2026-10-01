@@ -15,13 +15,15 @@ for (let f = 0; f < 60 * 120; f += 1) {
     const g = window.__cc.game, p = g.players[0];
     return { tc: p.rig.timeToContact(), stroke: p.rig.stroke, x: p.pos.x, z: p.pos.z, side: p.side, serve: g.state === 'toss' };
   });
-  if (!st.stroke || st.serve || st.tc === null || st.tc > 0.4 || st.tc < 0.3) continue;
+  const wantServe = opt('serve', '') !== '';
+  if (!st.stroke || st.serve !== wantServe || st.tc === null || st.tc > (wantServe ? 1.0 : 0.4) || st.tc < (wantServe ? 0.9 : 0.3)) continue;
   if (skip-- > 0) { await page.evaluate(() => window.__pump(40)); continue; }
   const log = [];
   for (let k = 0; k < 8; k++) {
     const info = await page.evaluate((s) => {
       const g = window.__cc.game, p = g.players[0], T = window.__cc.THREE;
-      window.__cam(s.x + 2.4 * s.side, 1.6, s.z - 3.4 * s.side, s.x, 1.0, s.z - 0.5 * s.side, 40);
+      if (s.serve) window.__cam(s.x + 4.2 * s.side, 1.7, s.z - 3.0 * s.side, s.x, 1.6, s.z, 42);
+      else window.__cam(s.x + 2.4 * s.side, 1.6, s.z - 3.4 * s.side, s.x, 1.0, s.z - 0.5 * s.side, 40);
       window.__pump(1, 0.00001);
       const sw = p.rig.sweetSpot(new T.Vector3());
       const b = g.ball.p;
@@ -29,7 +31,7 @@ for (let f = 0; f < 60 * 120; f += 1) {
     }, st);
     log.push(info);
     await page.screenshot({ path: `shots/seq_${k}.png` });
-    await page.evaluate(() => window.__pump(3));
+    await page.evaluate((n) => window.__pump(n), opt('serve', '') ? 8 : 3);
   }
   console.log(JSON.stringify(log));
   break;
